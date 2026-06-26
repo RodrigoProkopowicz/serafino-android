@@ -2,12 +2,14 @@ package com.serafino.feature.store.profile
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,10 +37,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -175,6 +180,13 @@ private fun LoyaltyCard(data: ProfileInteractor.Data) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(symbolIcon(data.tier.symbolName), contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
             Text(data.tier.name.uppercase(), style = SerafinoType.caption, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(Modifier.weight(1f))
+            Image(
+                painter = painterResource(com.serafino.designsystem.R.drawable.serafino_wordmark),
+                contentDescription = "Serafino",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.height(16.dp).alpha(0.9f),
+            )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GranoMark(size = 34.dp, tint = Color.White)

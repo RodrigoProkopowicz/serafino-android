@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.serafino.designsystem.AppBackground
@@ -92,18 +95,18 @@ fun StoreCatalogScreen(presenter: StoreCatalogPresenter) {
             Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = Theme.Spacing.lg, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Serafino",
-                style = SerafinoType.title3,
-                fontWeight = FontWeight.Bold,
-                color = Theme.Palette.gold,
+            Image(
+                painter = painterResource(com.serafino.designsystem.R.drawable.serafino_wordmark),
+                contentDescription = "Serafino",
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .glassCapsule(interactive = false)
                     .clickable {
                         com.serafino.designsystem.Haptics.tap()
                         scope.launch { scrollState.animateScrollTo(0) }
                     }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 9.dp)
+                    .height(20.dp),
             )
             Spacer(Modifier.weight(1f))
             CartButton(count = interactor.data.cartCount, onClick = presenter::openCart)

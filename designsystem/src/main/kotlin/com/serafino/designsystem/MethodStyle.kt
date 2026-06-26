@@ -1,5 +1,6 @@
 package com.serafino.designsystem
 
+import androidx.annotation.DrawableRes
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -32,6 +33,22 @@ val BrewMethod.accentOnDark: Color
         BrewMethod.MokaPot -> Color(red = 0.93f, green = 0.49f, blue = 0.35f)
         BrewMethod.ColdBrew -> Color(red = 0.46f, green = 0.72f, blue = 0.95f)
         BrewMethod.Chemex -> Color(red = 0.87f, green = 0.71f, blue = 0.49f)
+    }
+
+/**
+ * Foto de la cafetera para posters y heroes de receta. Espeja `MethodStyle.imageName` de iOS
+ * (mismos binarios portados a `res/drawable`).
+ */
+@get:DrawableRes
+val BrewMethod.imageRes: Int
+    get() = when (this) {
+        BrewMethod.Espresso -> R.drawable.brew_espresso
+        BrewMethod.PourOverV60 -> R.drawable.brew_v60
+        BrewMethod.Aeropress -> R.drawable.brew_aeropress
+        BrewMethod.FrenchPress -> R.drawable.brew_french_press
+        BrewMethod.MokaPot -> R.drawable.brew_moka
+        BrewMethod.ColdBrew -> R.drawable.brew_cold_brew
+        BrewMethod.Chemex -> R.drawable.brew_chemex
     }
 
 /** Degradado de marca del método (para posters y heroes). */
