@@ -39,4 +39,13 @@ class CheckoutValidatorTest {
         assertTrue(CheckoutValidator.isSanMiguel(city = "Muñiz", zip = ""))
         assertFalse(CheckoutValidator.isSanMiguel(city = "La Plata", zip = ""))
     }
+
+    /**
+     * El CP manda cuando está presente (4 dígitos): un CP fuera de San Miguel descarta el reparto
+     * propio aunque la localidad coincida, y un CP de San Miguel lo habilita aunque la localidad no.
+     */
+    @Test fun zipOverridesCityWhenPresent() {
+        assertFalse(CheckoutValidator.isSanMiguel(city = "San Miguel", zip = "1000"))
+        assertTrue(CheckoutValidator.isSanMiguel(city = "La Plata", zip = "1663"))
+    }
 }

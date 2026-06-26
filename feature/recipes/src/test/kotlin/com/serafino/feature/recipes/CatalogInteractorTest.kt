@@ -41,8 +41,12 @@ class CatalogInteractorTest {
         i.handle(CatalogInteractor.Input.OnAppear)
         i.handle(CatalogInteractor.Input.Search("floral")) // nota de sabor del V60
         assertEquals(listOf(BrewMethod.PourOverV60), i.data.sections.map { it.method })
-        i.handle(CatalogInteractor.Input.Search("french")) // nombre French Press
+        i.handle(CatalogInteractor.Input.Search("french")) // nombre "Test French Press"
         assertEquals(listOf(BrewMethod.FrenchPress), i.data.sections.map { it.method })
+        // Sólo el displayName del método ("Vertido · V60") contiene "vertido": ni el nombre
+        // ("Test V60") ni la nota ("Floral"). Cubre la rama method.displayName de matches().
+        i.handle(CatalogInteractor.Input.Search("vertido"))
+        assertEquals(listOf(BrewMethod.PourOverV60), i.data.sections.map { it.method })
     }
 
     @Test fun searchNoMatchIsEmpty() {

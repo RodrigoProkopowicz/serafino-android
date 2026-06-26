@@ -5,6 +5,7 @@ import com.serafino.domain.entities.store.Order
 import com.serafino.domain.entities.store.OrderStatus
 import com.serafino.feature.store.order.OrderStatusInteractor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -38,6 +39,18 @@ class OrderStatusInteractorTest {
         assertEquals(OrderStatusInteractor.State.Loaded, interactor.state)
         assertTrue(interactor.data.status.isPending)
         assertEquals(0, cart.clearCount)
+    }
+
+    /** Pago rechazado: deja de reintentar y NO vacía el carrito (ruta de dinero asimétrica). */
+    @Test fun rejectedDoesNotClearCart() {
+        val checkout = MockCheckoutService().apply { orderQueue = mutableListOf(order(OrderStatus.Rejected)) }
+        val (interactor, cart) = make(checkout)
+        interactor.handle(OrderStatusInteractor.Input.OnAppear)
+        assertEquals(OrderStatusInteractor.State.Loaded, interactor.state)
+        assertEquals(OrderStatus.Rejected, interactor.data.status)
+        assertFalse(interactor.data.status.isPending)
+        assertEquals(0, cart.clearCount)
+        assertFalse(interactor.data.isPolling)
     }
 
     @Test fun failsWhenOrderUnavailable() {
