@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "1092579380203",
+    "project_id": "coffeestore-5322d",
+    "storage_bucket": "coffeestore-5322d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1092579380203:android:c6f45c4ce26a1939dfa7ae",
+        "android_client_info": {
+          "package_name": "com.rodrigoprokopowicz.serafino"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1092579380203-q045iekpir3n72qsotjj13r0geuv28vj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBjCi3IMAErhJhdV8nddnxf45Kiun4V79E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1092579380203-q045iekpir3n72qsotjj13r0geuv28vj.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1092579380203-i0nfqjoarl0neqq9a7r4bak8uh6jf16e.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "RodrigoProkopowicz.Serafino"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema base sin ActionBar: la UI la dibuja Compose. Fondo noir (dark-first). -->
+    <style name="Theme.Serafino" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/serafino_noir</item>
+    </style>
+</resources>
