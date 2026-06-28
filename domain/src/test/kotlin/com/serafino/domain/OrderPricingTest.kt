@@ -7,6 +7,7 @@ import org.junit.Test
 /** Espeja `OrderPricingTests` de iOS: un único descuento por producto. */
 class OrderPricingTest {
     private fun line(id: String, unit: Int, qty: Int = 1) = OrderPricing.Line(id, unit, qty)
+    private fun discountedLine(id: String, unit: Int, qty: Int = 1) = OrderPricing.Line(id, unit, qty, discounted = true)
 
     @Test fun noDiscounts() {
         val r = OrderPricing.preview(listOf(line("a", 10000, 2)), null, null)
@@ -47,5 +48,17 @@ class OrderPricingTest {
     @Test fun cafeDelDiaNotInCart() {
         val r = OrderPricing.preview(listOf(line("a", 10000), line("b", 5000)), 10, OrderPricing.CafeDelDia("ausente", 15, null))
         assertEquals(9000 + 4500, r.total); assertEquals(1500, r.discount)
+    }
+
+    // El código NO se apila sobre un ítem que ya trae descuento propio (catálogo/medida puntual/combo).
+    @Test fun promoCodeSkipsDiscountedLine() {
+        val r = OrderPricing.preview(listOf(discountedLine("promo", 8500), line("full", 5000)), 10, null)
+        // 'promo' conserva su precio; el código solo descuenta 'full'.
+        assertEquals(8500 + 4500, r.total); assertEquals(500, r.discount)
+    }
+
+    @Test fun promoCodeNoOpWhenAllDiscounted() {
+        val r = OrderPricing.preview(listOf(discountedLine("a", 8500), discountedLine("b", 4250)), 20, null)
+        assertEquals(12750, r.total); assertEquals(0, r.discount)
     }
 }

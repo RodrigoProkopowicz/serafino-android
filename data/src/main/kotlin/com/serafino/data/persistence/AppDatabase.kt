@@ -35,6 +35,8 @@ data class CartLineEntity(
     val formatWeight: String,
     val unitPrice: Int,
     val quantity: Int,
+    /** El ítem ya trae descuento propio (catálogo/medida puntual) o es combo (ver `CartLine`). */
+    val discounted: Boolean = false,
     val addedAt: Long,
 )
 
@@ -70,7 +72,9 @@ interface CartDao {
 
 @Database(
     entities = [FavoriteRecipeEntity::class, CartLineEntity::class],
-    version = 1,
+    // v2: el carrito guarda `discounted` por línea (código promocional sin apilar). Migración
+    // destructiva (ver AppPersistence): el carrito es efímero y se reconstruye al navegar.
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

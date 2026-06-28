@@ -44,6 +44,12 @@ data class ProductFormat(
     val weight: String,
     val price: Int,
     val promoPrice: Int?,
+    /**
+     * Promo del formato: si lo trae, gobierna la promo SOLO de este tamaño; si es `null`, hereda la
+     * del producto. Así el descuento puede ser de todo el café o de una medida puntual. Espeja el
+     * `promoActive` por formato del backend (`shared/catalog.mjs`/`functions/lib/pricing.js`).
+     */
+    val promoActive: Boolean? = null,
 ) {
     val id: String get() = weight
 }

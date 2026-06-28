@@ -131,7 +131,8 @@ class ProductDetailInteractor(
     private fun apply(product: Product) {
         this.product = product
         val options = product.formats.map { format ->
-            FormatOption(format.label, format.weight, Pricing.resolve(format.price, format.promoPrice, product.promoActive))
+            // pricing(weight) aplica la promo del FORMATO si la trae, o hereda la del producto.
+            FormatOption(format.label, format.weight, product.pricing(format.weight))
         }.ifEmpty {
             listOf(FormatOption("Estándar", product.weight, product.pricing))
         }
@@ -175,6 +176,9 @@ class ProductDetailInteractor(
                 formatWeight = option.weight,
                 unitPrice = option.pricing.price,
                 quantity = data.quantity,
+                // Un único descuento por producto: si el formato ya trae promo (o es combo), el
+                // código promocional no se apila encima en el checkout (espeja resolveOrderItems).
+                discounted = option.pricing.active || product.isCombo,
             ),
         )
         analytics.track(AnalyticsEvent.AddToCart(product.id, product.name, option.pricing.price, data.quantity))

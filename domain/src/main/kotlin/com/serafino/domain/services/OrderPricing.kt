@@ -7,9 +7,11 @@ import kotlin.math.roundToInt
 
 /**
  * Previsualización de totales del checkout (función pura, testeable). Espeja 1:1 la composición
- * del backend: UN ÚNICO descuento por producto. El producto del Café del Día queda EXCLUIDO del
- * código promocional y recibe solo su % dirigido (con tope ARS); el código aplica al resto del
- * carrito. ARQ-1: lo que se muestra acá == lo que cobra el servidor. Espeja `OrderPricing` de iOS.
+ * del backend (`functions/lib/pricing.js`): UN ÚNICO descuento por producto. Quedan EXCLUIDOS del
+ * código promocional: el producto del Café del Día (recibe solo su % dirigido, con tope ARS) y los
+ * ítems que YA traen descuento propio del catálogo/medida puntual o son combos (`Line.discounted`,
+ * igual que `applyPromoToOrder`). El código aplica al resto del carrito. ARQ-1: lo que se muestra
+ * acá == lo que cobra el servidor.
  */
 object OrderPricing {
 
@@ -18,6 +20,8 @@ object OrderPricing {
         val productID: String,
         val unitPrice: Int,
         val quantity: Int,
+        /** El ítem ya trae descuento propio (catálogo/medida puntual) o es combo: excluido del código. */
+        val discounted: Boolean = false,
     )
 
     /** Descuento dirigido del Café del Día sobre un producto puntual del carrito. */
@@ -36,7 +40,8 @@ object OrderPricing {
 
     /**
      * Calcula subtotal/descuento/total aplicando, por línea, UN SOLO descuento: la línea del Café
-     * del Día recibe su % dirigido (con tope), el resto recibe el código si hay uno válido.
+     * del Día recibe su % dirigido (con tope); un ítem que ya trae descuento propio o es combo
+     * (`discounted`) conserva su precio; el resto recibe el código si hay uno válido.
      */
     fun preview(lines: List<Line>, promoPercent: Int?, cafeDelDia: CafeDelDia?): Totals {
         val subtotal = lines.sumOf { it.unitPrice * it.quantity }
@@ -45,6 +50,9 @@ object OrderPricing {
             when {
                 cafeDelDia != null && cafeDelDia.productID == line.productID ->
                     partial + cafeDelDiaLineTotal(lineTotal, line.quantity, cafeDelDia.pct, cafeDelDia.maxDiscountARS)
+                // Un producto lleva UN ÚNICO descuento: el código no se apila sobre un ítem que ya
+                // trae promo del catálogo/medida puntual ni sobre un combo (espeja applyPromoToOrder).
+                line.discounted -> partial + lineTotal
                 promoPercent != null ->
                     partial + Pricing.applyPercent(line.unitPrice, promoPercent) * line.quantity
                 else -> partial + lineTotal

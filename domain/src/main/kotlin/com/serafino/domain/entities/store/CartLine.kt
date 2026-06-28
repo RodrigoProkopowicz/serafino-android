@@ -13,6 +13,12 @@ data class CartLine(
     /** Precio unitario efectivo del formato, en ARS. */
     val unitPrice: Int,
     val quantity: Int,
+    /**
+     * El formato ya trae un descuento propio (promo del catálogo o de la medida puntual) o es un
+     * combo: el código promocional NO se apila encima (un producto lleva UN ÚNICO descuento). Se
+     * congela al agregar, igual que `unitPrice`. Espeja `item.discounted` de `resolveOrderItems`.
+     */
+    val discounted: Boolean = false,
 ) {
     /** Clave única de la línea: producto + formato (misma celda del carrito). */
     val id: String get() = "$productID|$formatWeight"

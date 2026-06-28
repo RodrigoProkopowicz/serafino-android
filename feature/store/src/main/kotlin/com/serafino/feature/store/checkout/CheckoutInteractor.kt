@@ -149,7 +149,7 @@ class CheckoutInteractor(
         if (coversWholeCart && promoState.percentIfValid != null) promoState = PromoState.None
         val percent = if (coversWholeCart) null else promoState.percentIfValid
         val totals = OrderPricing.preview(
-            lines = cart.lines.map { OrderPricing.Line(it.productID, it.unitPrice, it.quantity) },
+            lines = cart.lines.map { OrderPricing.Line(it.productID, it.unitPrice, it.quantity, it.discounted) },
             promoPercent = percent,
             cafeDelDia = cafeDelDia,
         )

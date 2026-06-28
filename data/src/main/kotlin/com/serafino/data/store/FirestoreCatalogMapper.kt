@@ -72,6 +72,8 @@ object FirestoreCatalogMapper {
             weight = weight,
             price = fsInt(fields, "price") ?: 0,
             promoPrice = fsInt(fields, "promoPrice"),
+            // Ausente → null → hereda la promo del producto (compat total con datos existentes).
+            promoActive = fsBool(fields, "promoActive"),
         )
     }
 

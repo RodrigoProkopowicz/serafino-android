@@ -68,6 +68,7 @@ class RoomCartStore(
         formatWeight = formatWeight,
         unitPrice = unitPrice,
         quantity = quantity,
+        discounted = discounted,
         addedAt = System.currentTimeMillis(),
     )
 
@@ -79,5 +80,6 @@ class RoomCartStore(
         formatWeight = formatWeight,
         unitPrice = unitPrice,
         quantity = quantity,
+        discounted = discounted,
     )
 }

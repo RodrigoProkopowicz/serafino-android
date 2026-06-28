@@ -50,6 +50,34 @@ class PricingTest {
         assertEquals(17000, aurora.pricing("999 g").price)
     }
 
+    // Descuento por formato: el `promoActive` del FORMATO gobierna sobre el del producto.
+    private val perFormat = aurora.copy(
+        promoActive = false, // el producto NO está en promo…
+        formats = listOf(
+            // …pero una medida puntual sí: el 500 g se descuenta igual.
+            ProductFormat("Rendidor", "500 g", 37000, 31450, promoActive = true),
+            // El 125 g se queda a precio de lista pese a traer promoPrice (promo apagada en el formato).
+            ProductFormat("Degustación", "125 g", 12000, 10200, promoActive = false),
+            // El 250 g no marca nada → hereda del producto (apagado).
+            ProductFormat("Estándar", "250 g", 20000, 17000),
+        ),
+    )
+
+    @Test fun formatPromoOverridesProduct() {
+        val rendidor = perFormat.pricing("500 g")
+        assertTrue(rendidor.active); assertEquals(31450, rendidor.price)
+    }
+
+    @Test fun formatPromoOffEvenWithPromoPrice() {
+        val degustacion = perFormat.pricing("125 g")
+        assertFalse(degustacion.active); assertEquals(12000, degustacion.price)
+    }
+
+    @Test fun formatPromoInheritsProductWhenAbsent() {
+        val estandar = perFormat.pricing("250 g")
+        assertFalse(estandar.active); assertEquals(20000, estandar.price)
+    }
+
     @Test fun noPromoUsesListPrice() {
         val p = plain.pricing
         assertFalse(p.active); assertEquals(18000, p.price); assertEquals(0, p.discountPct)

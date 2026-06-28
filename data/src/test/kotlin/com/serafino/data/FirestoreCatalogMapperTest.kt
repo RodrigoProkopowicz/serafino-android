@@ -36,7 +36,7 @@ class FirestoreCatalogMapperTest {
             "featured": {"booleanValue": true},
             "hidden": {"booleanValue": false},
             "formats": {"arrayValue": {"values": [
-              {"mapValue": {"fields": {"label": {"stringValue": "Degustación"}, "weight": {"stringValue": "125 g"}, "price": {"integerValue": "12000"}, "promoPrice": {"integerValue": "10200"}}}},
+              {"mapValue": {"fields": {"label": {"stringValue": "Degustación"}, "weight": {"stringValue": "125 g"}, "price": {"integerValue": "12000"}, "promoPrice": {"integerValue": "10200"}, "promoActive": {"booleanValue": false}}}},
               {"mapValue": {"fields": {"label": {"stringValue": "Estándar"}, "weight": {"stringValue": "250 g"}, "price": {"integerValue": "20000"}, "promoPrice": {"integerValue": "17000"}}}}
             ]}},
             "description": {"stringValue": "Arábica de Colombia. Intensidad 4/10."},
@@ -109,7 +109,17 @@ class FirestoreCatalogMapperTest {
         assertEquals("Estándar", estandar.label)
         assertEquals(20000, estandar.price)
         assertEquals(17000, estandar.promoPrice)
-        assertEquals(10200, aurora.pricing("125 g").price)
+        // El 250 g no trae `promoActive` → null → hereda la promo del producto (activa).
+        assertNull(estandar.promoActive)
+        assertEquals(17000, aurora.pricing("250 g").price)
+    }
+
+    @Test fun mapsPerFormatPromoActive() {
+        val aurora = decode().first { it.id == "aurora" }
+        val degustacion = aurora.formats.first { it.weight == "125 g" }
+        // El 125 g apaga su promo (promoActive=false) aunque traiga promoPrice → precio de lista.
+        assertFalse(degustacion.promoActive!!)
+        assertEquals(12000, aurora.pricing("125 g").price)
     }
 
     @Test fun mapsFicha() {

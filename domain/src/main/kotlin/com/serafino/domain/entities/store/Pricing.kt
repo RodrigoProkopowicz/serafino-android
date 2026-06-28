@@ -57,13 +57,19 @@ val Product.pricing: Pricing
     get() = Pricing.resolve(price = price, promoPrice = promoPrice, promoActive = promoActive)
 
 /**
- * Precio efectivo de un formato puntual (espeja `getFormatPricing`). Si el formato no existe,
- * cae al precio de nivel superior (Estándar 250 g).
+ * Precio efectivo de un formato puntual (espeja `getFormatPricing`). La promo la gobierna el
+ * `promoActive` del FORMATO si lo trae; si no, hereda la del producto (descuento de todo el café
+ * vs. de una medida puntual). Si el formato no existe, cae al precio de nivel superior (Estándar
+ * 250 g).
  */
 fun Product.pricing(weight: String): Pricing {
     val format = formats.firstOrNull { it.weight == weight }
     return if (format != null) {
-        Pricing.resolve(price = format.price, promoPrice = format.promoPrice, promoActive = promoActive)
+        Pricing.resolve(
+            price = format.price,
+            promoPrice = format.promoPrice,
+            promoActive = format.promoActive ?: promoActive,
+        )
     } else pricing
 }
 
