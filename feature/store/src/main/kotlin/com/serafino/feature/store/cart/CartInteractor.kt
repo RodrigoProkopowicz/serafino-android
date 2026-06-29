@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlin.math.min
 
 /**
  * Refleja el carrito local: líneas con cantidad y subtotal. Las mutaciones van al CartStoring y
@@ -66,7 +67,8 @@ class CartInteractor(
     override fun handle(input: Input) {
         when (input) {
             is Input.OnAppear -> rebuild()
-            is Input.Increment -> cart.setQuantity(input.id, quantity(input.id) + 1)
+            is Input.Increment ->
+                cart.setQuantity(input.id, min(CartLine.MAX_ITEM_QUANTITY, quantity(input.id) + 1))
             is Input.Decrement -> cart.setQuantity(input.id, quantity(input.id) - 1)
             is Input.Remove -> cart.remove(input.id)
         }

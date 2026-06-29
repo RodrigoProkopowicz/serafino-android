@@ -95,8 +95,17 @@ data class LoyaltyVoucher(
     val createdAt: Date?,
     val expiresAt: Date?,
 ) {
-    /** ¿Sigue disponible para usar? */
+    /** ¿El estado es activo? (sin mirar el vencimiento). */
     val isActive: Boolean get() = status == "active"
+
+    /**
+     * ¿Usable AHORA? Activo y no vencido. Espeja `decideVoucherUse` del backend
+     * (`functions/lib/loyalty.js`): vence cuando `expiresAt <= now`. El endpoint `/vouchers` NO
+     * filtra los vencidos, así que el cliente los descarta para no ofrecer un canje que el backend
+     * va a rechazar (no mostrar un total con descuento que después no se puede cobrar).
+     */
+    fun isUsable(now: Date = Date()): Boolean =
+        isActive && (expiresAt == null || expiresAt.after(now))
 }
 
 /** Resultado de un canje (`/redeem`): el vale emitido + el saldo resultante. */

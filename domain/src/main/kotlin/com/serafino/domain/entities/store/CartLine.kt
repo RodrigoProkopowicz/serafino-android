@@ -25,4 +25,13 @@ data class CartLine(
 
     /** Subtotal de la línea (unitario × cantidad). */
     val lineTotal: Int get() = unitPrice * quantity
+
+    companion object {
+        /**
+         * Tope de unidades por línea. Espeja `MAX_ITEM_QUANTITY` del backend
+         * (`functions/lib/pricing.js`): el servidor recorta la cantidad a 1..99 al cobrar, así que
+         * el cliente la acota igual para que el total mostrado nunca supere al cobrado (ARQ-1).
+         */
+        const val MAX_ITEM_QUANTITY = 99
+    }
 }

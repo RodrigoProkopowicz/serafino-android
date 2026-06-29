@@ -49,4 +49,12 @@ class CartInteractorTest {
         interactor.handle(CartInteractor.Input.Decrement(line.id))
         assertTrue(cart.lines.isEmpty())
     }
+
+    // Incrementar no supera el tope del backend (MAX_ITEM_QUANTITY=99).
+    @Test fun incrementCapsAtMax() {
+        val line = cartLine(SampleProducts.aurora, 99)
+        val (interactor, cart) = make(listOf(line))
+        interactor.handle(CartInteractor.Input.Increment(line.id))
+        assertEquals(99, cart.lines.first().quantity)
+    }
 }

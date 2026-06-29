@@ -124,7 +124,10 @@ class MockCartStore(private val bus: EventBus, lines: List<CartLine> = emptyList
 
     override fun add(line: CartLine) {
         val idx = lines.indexOfFirst { it.id == line.id }
-        lines = if (idx >= 0) lines.toMutableList().also { it[idx] = it[idx].copy(quantity = it[idx].quantity + line.quantity) }
+        lines = if (idx >= 0) lines.toMutableList().also {
+            // Espeja el tope de RoomCartStore (acumulación acotada a MAX_ITEM_QUANTITY).
+            it[idx] = it[idx].copy(quantity = minOf(CartLine.MAX_ITEM_QUANTITY, it[idx].quantity + line.quantity))
+        }
         else lines + line
         publish()
     }
@@ -207,7 +210,8 @@ object SampleLoyalty {
     fun voucher(
         id: String, type: LoyaltyRewardType = LoyaltyRewardType.FreeProduct, status: String = "active",
         format: String? = "250 g", productId: String? = null, pct: Int? = null, cap: Int? = null,
-        expiresAt: Date? = testDate(2026, 8, 1),
+        // Lejos en el futuro: el filtro isUsable() descarta vencidos, así que el default debe estar vigente.
+        expiresAt: Date? = testDate(2030, 1, 1),
     ): LoyaltyVoucher = LoyaltyVoucher(
         id = id, rewardId = "r-$id", type = type, cost = 400, label = "Vale $id",
         status = status, format = format, productId = productId, pct = pct, maxDiscountARS = cap,

@@ -194,7 +194,7 @@ class RedeemInteractor(
             freeRewards = account.rewards.filter { it.type == LoyaltyRewardType.FreeProduct }.map { row(it) },
             merchRewards = account.rewards.filter { it.type == LoyaltyRewardType.Merch }.map { row(it) },
         )
-        val active = vouchers.filter { it.isActive }
+        val active = vouchers.filter { it.isUsable() }
         buildCatalogBacked(account.cafeDelDia, active)
 
         val needsCatalog = account.cafeDelDia?.productId != null || active.any { it.type == LoyaltyRewardType.FreeProduct }

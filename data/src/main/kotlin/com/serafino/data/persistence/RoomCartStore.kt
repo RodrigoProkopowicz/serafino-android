@@ -27,7 +27,9 @@ class RoomCartStore(
     override fun add(line: CartLine) {
         val existing = dao.find(line.id)
         if (existing != null) {
-            dao.upsert(existing.copy(quantity = existing.quantity + line.quantity))
+            // Acota la acumulación al tope del backend: el servidor recorta a 99 al cobrar (ARQ-1).
+            val merged = minOf(CartLine.MAX_ITEM_QUANTITY, existing.quantity + line.quantity)
+            dao.upsert(existing.copy(quantity = merged))
         } else {
             dao.upsert(line.toEntity())
         }

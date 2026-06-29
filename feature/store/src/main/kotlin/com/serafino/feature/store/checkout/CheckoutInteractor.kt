@@ -203,7 +203,7 @@ class CheckoutInteractor(
     private fun loadVouchers() {
         val loyalty = loyalty ?: return
         scope.launch {
-            val active = runCatching { loyalty.vouchers() }.getOrDefault(emptyList()).filter { it.isActive }
+            val active = runCatching { loyalty.vouchers() }.getOrDefault(emptyList()).filter { it.isUsable() }
             data = data.copy(vouchers = active)
             if (active.any { it.type == LoyaltyRewardType.FreeProduct || it.type == LoyaltyRewardType.CafeDelDia } && catalog != null) {
                 allProducts = runCatching { catalog.loadProducts() }.getOrDefault(emptyList())

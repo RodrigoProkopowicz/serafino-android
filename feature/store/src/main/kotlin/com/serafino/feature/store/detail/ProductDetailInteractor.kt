@@ -29,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Arma el modelo de presentación de un café: formatos con precio efectivo, ficha, reseñas y
@@ -102,7 +103,8 @@ class ProductDetailInteractor(
         when (input) {
             is Input.OnAppear -> load()
             is Input.SelectFormat -> selectFormat(input.weight)
-            is Input.IncrementQuantity -> data = data.copy(quantity = data.quantity + 1)
+            is Input.IncrementQuantity ->
+                data = data.copy(quantity = min(CartLine.MAX_ITEM_QUANTITY, data.quantity + 1))
             is Input.DecrementQuantity -> data = data.copy(quantity = max(1, data.quantity - 1))
             is Input.AddToCart -> addToCart()
             is Input.LoadReviews -> loadReviews()

@@ -80,6 +80,16 @@ class ProductDetailInteractorTest {
         assertEquals(1, i.data.quantity)
     }
 
+    // El tope espeja MAX_ITEM_QUANTITY=99 del backend (ARQ-1: total mostrado nunca > cobrado).
+    @Test fun quantityCapsAtMax() {
+        val (i, cart, _) = make()
+        i.handle(ProductDetailInteractor.Input.OnAppear)
+        repeat(200) { i.handle(ProductDetailInteractor.Input.IncrementQuantity) }
+        assertEquals(99, i.data.quantity)
+        i.handle(ProductDetailInteractor.Input.AddToCart)
+        assertEquals(99, cart.lines.first().quantity)
+    }
+
     @Test fun notFound() {
         val (i, _, _) = make(productID = "no-existe")
         i.handle(ProductDetailInteractor.Input.OnAppear)
