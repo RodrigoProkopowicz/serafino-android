@@ -37,11 +37,15 @@ object LoyaltyTierCatalog {
         else -> "leaf"
     }
 
-    /** Escalera de respaldo (si `/config` falla / dev). Espeja los defaults del backend. */
+    /**
+     * Escalera de respaldo (si `/config` falla / dev). Espeja los defaults del backend
+     * (`functions/lib/loyalty.js` DEFAULT_LOYALTY_CONFIG): nombres de marca Aficionado → Conocedor
+     * → Maestro; las `key` (base/intermedio/top) no cambian (rewards.unlockTier depende de ellas).
+     */
     val fallback: List<LoyaltyTier> = listOf(
-        tier("base", "Base", 0, "5b4231", "bean", 5, "Cada compra suma granos. Acá empieza tu camino."),
-        tier("intermedio", "Intermedio", 300, "a3692c", "beans", 10, "Ya le tomaste el gusto. Seguí sumando."),
-        tier("top", "Top", 700, "c0833f", "star", 15, "Llegaste a la cima del café de especialidad."),
+        tier("base", "Aficionado", 0, "5b4231", "bean", 5, "Acá empieza tu camino en el café de especialidad. Cada compra suma granos."),
+        tier("intermedio", "Conocedor", 300, "a3692c", "beans", 10, "Ya distinguís un gran café. Seguí sumando granos."),
+        tier("top", "Maestro", 700, "c0833f", "star", 15, "Dominás el arte del café de especialidad. Llegaste a la cima."),
     )
 
     fun tier(

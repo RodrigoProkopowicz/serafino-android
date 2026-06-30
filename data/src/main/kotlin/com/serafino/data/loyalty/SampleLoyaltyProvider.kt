@@ -35,7 +35,7 @@ class SampleLoyaltyProvider : LoyaltyProviding {
 
     override suspend fun loadAccount(): LoyaltyAccount {
         delay(450)
-        // 450 granos acumulados → nivel "Intermedio" (≥300), 37% rumbo a "Top" (700).
+        // 450 granos acumulados → nivel "Conocedor" (≥300), 37% rumbo a "Maestro" (700).
         return LoyaltyAccount.make(
             points = 450,
             lifetimePoints = 450,
