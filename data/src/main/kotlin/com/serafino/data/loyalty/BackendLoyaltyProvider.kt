@@ -5,6 +5,7 @@ import com.serafino.data.store.ApiException
 import com.serafino.data.store.CoffeeStoreResponseMapper
 import com.serafino.data.store.Http
 import com.serafino.domain.BackendConfig
+import com.serafino.domain.entities.loyalty.BeanTransaction
 import com.serafino.domain.entities.loyalty.DirectRedeemOutcome
 import com.serafino.domain.entities.loyalty.LoyaltyAccount
 import com.serafino.domain.entities.loyalty.LoyaltyConfig
@@ -26,12 +27,34 @@ import org.json.JSONObject
  * `/loyalty/config` (público), `/loyalty/me` y `/loyalty/ledger` (con el ID token en
  * `Authorization: Bearer`). Solo transporte; el parsing vive en [LoyaltyResponseMapper]. Degrada
  * con gracia si config/ledger fallan. Espeja `BackendLoyaltyProvider` de iOS.
+ *
+ * Dieta de requests (el rate limit del backend es 60 lecturas/min): la escalera (`/config`)
+ * se cachea en memoria por sesión, el historial (`/ledger`) se cachea por usuario, y
+ * [loadAccountSummary] — el refresco frecuente de ciclo de vida — reusa ambos y pide
+ * SOLO `/me` (1 GET en vez de 3). [loadAccount] sigue siendo la carga completa.
  */
 class BackendLoyaltyProvider(
     private val auth: AuthProviding,
     private val fallbackTiers: List<LoyaltyTier> = LoyaltyTierCatalog.fallback,
     private val client: OkHttpClient = Http.shared,
 ) : LoyaltyProviding {
+
+    /**
+     * Escalera cacheada por sesión (es config pública y casi nunca cambia). Solo se guarda
+     * cuando `/config` respondió bien: un fallo degrada a fallback SIN cachear (se reintenta).
+     */
+    @Volatile
+    private var cachedTiers: List<LoyaltyTier>? = null
+
+    /**
+     * Historial cacheado del ÚLTIMO usuario ([historyUserID]): un cambio de sesión lo invalida
+     * para no mostrar movimientos de otra cuenta.
+     */
+    @Volatile
+    private var cachedHistory: List<BeanTransaction>? = null
+
+    @Volatile
+    private var historyUserID: String? = null
 
     override suspend fun loadPublicConfig(): LoyaltyConfig {
         val (status, body) = get("loyalty/config", token = null)
@@ -41,23 +64,63 @@ class BackendLoyaltyProvider(
     }
 
     override suspend fun loadAccount(): LoyaltyAccount {
+        // El uid se captura ANTES de los suspends: si la sesión cambia con la request en
+        // vuelo, el historial queda cacheado a nombre del dueño real del token, no del nuevo.
+        val requestUserID = auth.currentUser?.uid
         val token = auth.idToken() ?: throw ApiException.Server("Iniciá sesión para ver tus granos.")
 
-        // Las tres lecturas son independientes: en paralelo.
-        val (configStatus, configBody, meStatus, meBody, ledgerStatus, ledgerBody) = coroutineScope {
-            val config = async { get("loyalty/config", token) }
+        // Lecturas independientes en paralelo. La escalera cacheada por sesión ahorra `/config`.
+        val (tiers, meStatus, meBody, ledgerStatus, ledgerBody) = coroutineScope {
+            val resolvedTiers = async { resolveTiers(token) }
             val me = async { get("loyalty/me", token) }
             val ledger = async { get("loyalty/ledger", token) }
-            val c = config.await(); val m = me.await(); val l = ledger.await()
-            Six(c.first, c.second, m.first, m.second, l.first, l.second)
+            val t = resolvedTiers.await(); val m = me.await(); val l = ledger.await()
+            Five(t, m.first, m.second, l.first, l.second)
         }
 
         // `/me` es obligatorio.
         if (meStatus !in 200..299) throw ApiException.Server(message(meStatus, meBody))
 
-        val tiers = (if (configStatus in 200..299) LoyaltyResponseMapper.tiers(configBody) else null) ?: fallbackTiers
-        val history = if (ledgerStatus in 200..299) LoyaltyResponseMapper.history(ledgerBody) else emptyList()
+        // Historial: secundario; si falla, cuenta sin movimientos (y sin pisar el cacheado).
+        val history: List<BeanTransaction>
+        if (ledgerStatus in 200..299) {
+            history = LoyaltyResponseMapper.history(ledgerBody)
+            cachedHistory = history
+            historyUserID = requestUserID
+        } else {
+            history = emptyList()
+        }
+
         return LoyaltyResponseMapper.account(meBody, tiers, history)
+    }
+
+    override suspend fun loadAccountSummary(): LoyaltyAccount {
+        // Sin escalera o historial reutilizable (u otro usuario): carga completa.
+        val tiers = cachedTiers
+        val history = cachedHistory
+        if (tiers == null || history == null || historyUserID != auth.currentUser?.uid) {
+            return loadAccount()
+        }
+        val token = auth.idToken() ?: throw ApiException.Server("Iniciá sesión para ver tus granos.")
+        val (meStatus, meBody) = get("loyalty/me", token)
+        if (meStatus !in 200..299) throw ApiException.Server(message(meStatus, meBody))
+        return LoyaltyResponseMapper.account(meBody, tiers, history)
+    }
+
+    /**
+     * Escalera para armar la cuenta: cacheada > `/config` > fallback local. Cachea solo
+     * respuestas buenas, así un fallo transitorio no congela la escalera de fallback.
+     */
+    private suspend fun resolveTiers(token: String): List<LoyaltyTier> {
+        cachedTiers?.let { return it }
+        val (configStatus, configBody) = get("loyalty/config", token)
+        if (configStatus in 200..299) {
+            LoyaltyResponseMapper.tiers(configBody)?.let { tiers ->
+                cachedTiers = tiers
+                return tiers
+            }
+        }
+        return fallbackTiers
     }
 
     override suspend fun redeem(rewardId: String, idempotencyKey: String?): RedeemOutcome {
@@ -125,7 +188,8 @@ class BackendLoyaltyProvider(
         if (status == 429) "Demasiadas solicitudes. Esperá un momento y volvé a intentar."
         else CoffeeStoreResponseMapper.errorMessage(body)
 
-    private data class Six(
-        val a: Int, val b: String, val c: Int, val d: String, val e: Int, val f: String,
+    private data class Five(
+        val tiers: List<LoyaltyTier>, val meStatus: Int, val meBody: String,
+        val ledgerStatus: Int, val ledgerBody: String,
     )
 }

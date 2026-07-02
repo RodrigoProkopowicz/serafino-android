@@ -1,6 +1,7 @@
 package com.serafino.feature.store
 
 import com.serafino.architecture.EventBus
+import com.serafino.architecture.RewardRedeemedEvent
 import com.serafino.domain.entities.loyalty.LoyaltyRewardType
 import com.serafino.domain.entities.store.CartLine
 import com.serafino.domain.services.CheckoutField
@@ -53,20 +54,52 @@ class CheckoutInteractorTest {
         assertEquals(2, req.items.first().quantity)
         assertEquals("ana@mail.com", req.payer.email)
         assertEquals("grano", req.grind)
+        assertNull(req.promoCode)   // sin código validado no viaja nada
         assertNotNull(i.data.payment)
         assertEquals("order-1", i.data.lastOrderId)
     }
 
+    /** Previsualizar un promo válido recalcula el total (producto sin promo de catálogo). */
     @Test fun promoPreviewRecomputesTotals() {
-        val (i, _, checkout) = make()
+        val (i, _, checkout) = make(listOf(cartLine(SampleProducts.plain)))
+        checkout.promoResult = PromoResult(valid = true, code = "OFF10", percent = 10, error = null)
+        i.handle(CheckoutInteractor.Input.OnAppear)
+        i.handle(CheckoutInteractor.Input.UpdatePromoCode("OFF10"))
+        i.handle(CheckoutInteractor.Input.ValidatePromo)
+        assertEquals(CheckoutInteractor.PromoState.Valid(10), i.data.promoState)
+        assertEquals(18000, i.data.subtotal)
+        assertEquals(16200, i.data.total)   // applyPercent(18000, 10)
+        assertEquals(1800, i.data.discount)
+        assertFalse(i.data.promoSkipsDiscounted)
+    }
+
+    /**
+     * Aurora viene con promo activa (17000 ya es el precio promo): un solo descuento
+     * por producto — el código es válido pero no la toca, y la UI lo señala.
+     */
+    @Test fun promoDoesNotStackOnDiscountedLine() {
+        val (i, _, checkout) = make(listOf(cartLine(SampleProducts.aurora)))
         checkout.promoResult = PromoResult(valid = true, code = "OFF10", percent = 10, error = null)
         i.handle(CheckoutInteractor.Input.OnAppear)
         i.handle(CheckoutInteractor.Input.UpdatePromoCode("OFF10"))
         i.handle(CheckoutInteractor.Input.ValidatePromo)
         assertEquals(CheckoutInteractor.PromoState.Valid(10), i.data.promoState)
         assertEquals(17000, i.data.subtotal)
-        assertEquals(15300, i.data.total)
-        assertEquals(1700, i.data.discount)
+        assertEquals(17000, i.data.total)   // sin apilar
+        assertEquals(0, i.data.discount)
+        assertTrue(i.data.promoSkipsDiscounted)
+    }
+
+    /** Un código validado viaja en el request de pago. */
+    @Test fun payCarriesValidatedPromoCode() {
+        val (i, _, checkout) = make(listOf(cartLine(SampleProducts.plain)))
+        checkout.promoResult = PromoResult(valid = true, code = "OFF10", percent = 10, error = null)
+        i.handle(CheckoutInteractor.Input.OnAppear)
+        i.handle(CheckoutInteractor.Input.UpdatePromoCode("OFF10"))
+        i.handle(CheckoutInteractor.Input.ValidatePromo)
+        fillValid(i)
+        i.handle(CheckoutInteractor.Input.Pay)
+        assertEquals("OFF10", checkout.createdRequests.first().promoCode)
     }
 
     @Test fun freeShippingForSanMiguel() {
@@ -178,8 +211,10 @@ class CheckoutInteractorTest {
         assertTrue(i.data.promoLocked)
     }
 
+    /** Café del Día + otro producto: el código aplica solo al resto del carrito. */
     @Test fun cafeDelDiaPlusOtherSplitsDiscount() {
-        val (i, checkout) = withVouchers(listOf(cdd("aurora")), listOf(cartLine(SampleProducts.aurora), cartLine(SampleProducts.premium)))
+        // Aurora (café del día, 17000) + Plano (18000, sin promo de catálogo).
+        val (i, checkout) = withVouchers(listOf(cdd("aurora")), listOf(cartLine(SampleProducts.aurora), cartLine(SampleProducts.plain)))
         checkout.promoResult = PromoResult(valid = true, code = "OFF10", percent = 10, error = null)
         i.handle(CheckoutInteractor.Input.OnAppear)
         i.handle(CheckoutInteractor.Input.UpdatePromoCode("OFF10"))
@@ -187,9 +222,10 @@ class CheckoutInteractorTest {
         i.handle(CheckoutInteractor.Input.SelectVoucher("cdd"))
         assertFalse(i.data.promoLocked)
         assertEquals(CheckoutInteractor.PromoState.Valid(10), i.data.promoState)
-        assertEquals(17000 + 16150, i.data.subtotal)
-        assertEquals(15300 + 14535, i.data.total)
-        assertEquals(33150 - 29835, i.data.discount)
+        assertEquals(17000 + 18000, i.data.subtotal)
+        // aurora: café del día 10% → 15300 (nunca el código). plano: código 10% → 16200.
+        assertEquals(15300 + 16200, i.data.total)
+        assertEquals(35000 - 31500, i.data.discount)
     }
 
     @Test fun selectingCafeDelDiaDropsAppliedPromo() {
@@ -203,20 +239,32 @@ class CheckoutInteractorTest {
         assertTrue(i.data.promoLocked)
         assertEquals(CheckoutInteractor.PromoState.None, i.data.promoState)
         assertEquals(15300, i.data.total)
+
+        // Y al pagar, el código soltado NO viaja al backend; el vale sí.
+        fillValid(i)
+        i.handle(CheckoutInteractor.Input.Pay)
+        assertNull(checkout.createdRequests.first().promoCode)
+        assertEquals("cdd", checkout.createdRequests.first().voucher?.id)
     }
 
+    /** Deseleccionar el Café del Día devuelve su línea al precio de catálogo. */
     @Test fun deselectingCafeDelDiaRestoresPromo() {
-        val (i, checkout) = withVouchers(listOf(cdd("aurora", pct = 15)), listOf(cartLine(SampleProducts.aurora), cartLine(SampleProducts.premium)))
+        // pct 15 para que el descuento del café del día se distinga del código (10%).
+        // Plano acompaña sin promo de catálogo: el código le aplica siempre.
+        val (i, checkout) = withVouchers(listOf(cdd("aurora", pct = 15)), listOf(cartLine(SampleProducts.aurora), cartLine(SampleProducts.plain)))
         checkout.promoResult = PromoResult(valid = true, code = "OFF10", percent = 10, error = null)
         i.handle(CheckoutInteractor.Input.OnAppear)
         i.handle(CheckoutInteractor.Input.UpdatePromoCode("OFF10"))
         i.handle(CheckoutInteractor.Input.ValidatePromo)
         i.handle(CheckoutInteractor.Input.SelectVoucher("cdd"))
-        assertEquals(14450 + 14535, i.data.total)
+        // aurora: café del día 15% → 14450. plano: código 10% → 16200.
+        assertEquals(14450 + 16200, i.data.total)
         i.handle(CheckoutInteractor.Input.SelectVoucher("cdd")) // deselecciona
         assertNull(i.data.selectedVoucherID)
         assertFalse(i.data.promoLocked)
-        assertEquals(15300 + 14535, i.data.total)
+        // aurora vuelve a su precio promo de catálogo (el código no se apila encima);
+        // plano conserva el código: 18000 → 16200.
+        assertEquals(17000 + 16200, i.data.total)
     }
 
     @Test fun freeCoffeeWithoutChoiceBlocksPay() {
@@ -227,5 +275,45 @@ class CheckoutInteractorTest {
         i.handle(CheckoutInteractor.Input.Pay)
         assertTrue(checkout.createdRequests.isEmpty())
         assertNotNull(i.data.voucherWarning)
+    }
+
+    /** Un canje con el Checkout ya montado recarga los vales (RewardRedeemedEvent). */
+    @Test fun rewardRedeemedReloadsVouchers() {
+        val bus = EventBus()
+        val cart = MockCartStore(bus, listOf(cartLine(SampleProducts.aurora)))
+        val loyalty = MockLoyaltyProvider(vouchersList = listOf(SampleLoyalty.voucher("v1")))
+        val i = CheckoutInteractor(cart, MockCheckoutService(), loyalty = loyalty, catalog = MockProductCatalog(), bus = bus)
+        i.handle(CheckoutInteractor.Input.OnAppear)
+        assertEquals(listOf("v1"), i.data.vouchers.map { it.id })
+        assertEquals(1, loyalty.vouchersCount)
+
+        // El usuario canjea en otra pantalla: el Checkout se entera y muestra el vale nuevo.
+        loyalty.vouchersList = listOf(
+            SampleLoyalty.voucher("v1"),
+            SampleLoyalty.voucher("v2", LoyaltyRewardType.Merch, format = null),
+        )
+        bus.publish(RewardRedeemedEvent())
+        assertEquals(2, loyalty.vouchersCount)
+        assertEquals(listOf("v1", "v2"), i.data.vouchers.map { it.id })
+    }
+
+    /** Si el vale seleccionado se consumió en otra pantalla, la recarga lo deselecciona. */
+    @Test fun rewardRedeemedClearsStaleSelection() {
+        val bus = EventBus()
+        val cart = MockCartStore(bus, listOf(cartLine(SampleProducts.aurora)))
+        val loyalty = MockLoyaltyProvider(vouchersList = listOf(SampleLoyalty.voucher("v1", LoyaltyRewardType.Merch, format = null)))
+        val i = CheckoutInteractor(cart, MockCheckoutService(), loyalty = loyalty, catalog = MockProductCatalog(), bus = bus)
+        i.handle(CheckoutInteractor.Input.OnAppear)
+        i.handle(CheckoutInteractor.Input.SelectVoucher("v1"))
+        assertEquals("v1", i.data.selectedVoucherID)
+        assertNotNull(i.data.voucherNote)
+
+        // El vale se consume en Redeem (pedido directo): el Checkout recarga la lista y
+        // la selección obsoleta se limpia — el pedido no promete un premio que no va más.
+        loyalty.vouchersList = emptyList()
+        bus.publish(RewardRedeemedEvent())
+        assertTrue(i.data.vouchers.isEmpty())
+        assertNull(i.data.selectedVoucherID)
+        assertNull(i.data.voucherNote)
     }
 }

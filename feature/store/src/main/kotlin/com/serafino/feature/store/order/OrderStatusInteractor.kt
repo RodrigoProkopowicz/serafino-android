@@ -5,8 +5,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.serafino.architecture.AnalyticsEvent
 import com.serafino.architecture.AnalyticsTracking
+import com.serafino.architecture.EventBus
 import com.serafino.architecture.Interactor
 import com.serafino.architecture.NoOpAnalytics
+import com.serafino.architecture.PurchaseCompletedEvent
 import com.serafino.designsystem.Haptics
 import com.serafino.domain.entities.store.OrderStatus
 import com.serafino.domain.services.CartStoring
@@ -20,13 +22,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Al volver del Checkout Pro, consulta `GET /api/order/:id` con reintentos. Si el pago se aprueba,
- * vacía el carrito. Espeja `OrderStatusInteractor` de iOS.
+ * Al volver del Checkout Pro, consulta `GET /api/order/:id` con reintentos. Si el pago se
+ * aprueba, vacía el carrito y publica [PurchaseCompletedEvent] para que el Perfil reconcilie
+ * los granos de la compra. Espeja `OrderStatusInteractor` de iOS.
  */
 class OrderStatusInteractor(
     orderID: String,
     private val checkout: CheckoutService,
     private val cart: CartStoring,
+    private val bus: EventBus,
     private val analytics: AnalyticsTracking = NoOpAnalytics(),
     private val maxAttempts: Int = 8,
     private val retryDelayMillis: Long = 2000,
@@ -74,6 +78,9 @@ class OrderStatusInteractor(
                             cart.clear()
                             Haptics.success()
                             analytics.track(AnalyticsEvent.Purchase(data.orderId, order.total))
+                            // Los granos los acredita el webhook: el Perfil escucha este
+                            // evento y reconcilia con reintentos hasta ver el saldo nuevo.
+                            bus.publish(PurchaseCompletedEvent(data.orderId))
                         }
                         data = data.copy(isPolling = false)
                         return@launch

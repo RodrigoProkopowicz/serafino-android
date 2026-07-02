@@ -30,6 +30,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Arma el modelo de presentación de un café: formatos con precio efectivo, ficha, reseñas y
@@ -42,6 +44,8 @@ class ProductDetailInteractor(
     private val reviewsProvider: ReviewsProviding,
     private val bus: EventBus,
     private val analytics: AnalyticsTracking = NoOpAnalytics(),
+    /** Ventana de frescura del catálogo al reingresar al detalle (vuelta de un push). */
+    private val staleTTL: Duration = 15.seconds,
 ) : Interactor<ProductDetailInteractor.Data, ProductDetailInteractor.Input, ProductDetailInteractor.State> {
 
     data class FormatOption(val label: String, val weight: String, val pricing: Pricing) {
@@ -114,10 +118,19 @@ class ProductDetailInteractor(
     fun dispose() = scope.cancel()
 
     private fun load() {
-        if (state == State.Loaded) return
+        // Reingreso al detalle (vuelta de un push): refrescamos precio/promo en segundo plano
+        // sin pisar la selección de formato/cantidad del usuario.
+        if (state == State.Loaded) {
+            scope.launch { refreshPricing() }
+            return
+        }
         val cached = catalog.product(productID)
         if (cached != null) {
             apply(cached)
+            // La caché puede venir del snapshot en disco (días de antigüedad) o estar
+            // vencida: revalidamos precio/promo en segundo plano. Dentro del TTL es
+            // gratis (loadProductsIfStale devuelve la caché sin red).
+            scope.launch { refreshPricing() }
             return
         }
         scope.launch {
@@ -130,14 +143,42 @@ class ProductDetailInteractor(
         }
     }
 
-    private fun apply(product: Product) {
-        this.product = product
-        val options = product.formats.map { format ->
-            // pricing(weight) aplica la promo del FORMATO si la trae, o hereda la del producto.
+    private fun formatOptions(product: Product): List<FormatOption> =
+        product.formats.map { format ->
+            // Una sola regla de precio: honra la promo del formato si la trae,
+            // si no hereda la del producto (ver `pricing(weight)`).
             FormatOption(format.label, format.weight, product.pricing(format.weight))
         }.ifEmpty {
             listOf(FormatOption("Estándar", product.weight, product.pricing))
         }
+
+    /**
+     * Revalida el catálogo (gateado por TTL) y re-aplica SOLO lo que afecta al precio: los
+     * formatos con su promo y el precio del formato elegido. El formato y la cantidad que
+     * eligió el usuario quedan como están; si su formato dejó de existir, cae al estándar.
+     */
+    private suspend fun refreshPricing() {
+        runCatching { catalog.loadProductsIfStale(staleTTL) }.getOrNull() ?: return
+        val updated = catalog.product(productID) ?: return
+        product = updated
+        val options = formatOptions(updated)
+        val current = options.firstOrNull { it.weight == data.selectedWeight }
+        if (current != null) {
+            data = data.copy(badge = updated.badge, formats = options, selectedPricing = current.pricing)
+        } else {
+            val standard = options.firstOrNull { it.weight == updated.weight } ?: options.first()
+            data = data.copy(
+                badge = updated.badge,
+                formats = options,
+                selectedWeight = standard.weight,
+                selectedPricing = standard.pricing,
+            )
+        }
+    }
+
+    private fun apply(product: Product) {
+        this.product = product
+        val options = formatOptions(product)
         val standard = options.firstOrNull { it.weight == product.weight } ?: options.first()
 
         data = data.copy(

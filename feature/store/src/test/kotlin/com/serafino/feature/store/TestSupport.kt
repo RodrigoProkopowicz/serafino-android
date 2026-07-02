@@ -3,8 +3,10 @@ package com.serafino.feature.store
 import com.serafino.architecture.AuthChangedEvent
 import com.serafino.architecture.AuthProviding
 import com.serafino.architecture.AuthUser
+import com.serafino.architecture.BusEvent
 import com.serafino.architecture.CartChangedEvent
 import com.serafino.architecture.EventBus
+import com.serafino.architecture.events
 import com.serafino.domain.entities.loyalty.BeanTransaction
 import com.serafino.domain.entities.loyalty.BeanTransactionKind
 import com.serafino.domain.entities.loyalty.CafeDelDia
@@ -33,7 +35,11 @@ import com.serafino.domain.services.LoyaltyProviding
 import com.serafino.domain.services.ProductCatalogProviding
 import com.serafino.domain.services.PromoResult
 import com.serafino.domain.services.ReviewsProviding
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -96,24 +102,58 @@ object SampleProducts {
     val all: List<Product> = listOf(aurora, premium, plain, notturno, hidden)
 }
 
-fun cartLine(product: Product, quantity: Int = 1): CartLine = CartLine(
+/**
+ * Línea de prueba a partir de un producto (formato Estándar). `discounted` espeja
+ * producción por default: `unitPrice` ya viene con la promo aplicada, así que la
+ * línea queda marcada igual que al agregar desde el detalle (`pricing.active`) y
+ * el código promocional no se apila encima. Pasá `discounted` para forzar un caso.
+ */
+fun cartLine(product: Product, quantity: Int = 1, discounted: Boolean? = null): CartLine = CartLine(
     productID = product.id, name = product.name, image = product.image,
     formatLabel = "Estándar", formatWeight = product.weight,
     unitPrice = product.pricing.price, quantity = quantity,
+    discounted = discounted ?: product.pricing.active,
 )
 
 class MockProductCatalog(
     var products: List<Product> = SampleProducts.all,
     var error: Throwable? = null,
 ) : ProductCatalogProviding {
+    /**
+     * Catálogo "conocido" previo (simula el snapshot en disco del provider real): permite
+     * testear el arranque instantáneo desde caché + revalidación en segundo plano.
+     */
+    var seeded: List<Product> = emptyList()
+    var seededDate: Date? = null
+
+    /** Demora artificial de la "red" (para observar estados intermedios con reloj virtual). */
+    var delayMillis: Long = 0
     var loadCount = 0; private set
+
     override suspend fun loadProducts(): List<Product> {
         loadCount++
+        if (delayMillis > 0) delay(delayMillis)
         error?.let { throw it }
         return products.filter { !it.hidden }
     }
     override fun product(id: String): Product? = products.firstOrNull { it.id == id }
+    override val cachedProducts: List<Product> get() = seeded
+    override val cachedProductsDate: Date? get() = seededDate
 }
+
+/**
+ * Colecciona los eventos de un tipo publicados en el bus, para asertar que un flujo
+ * los emite (y cuántas veces). Crear ANTES de disparar el flujo (el bus no tiene replay).
+ */
+class EventProbe<E : BusEvent>(bus: EventBus, type: Class<E>) {
+    val events = mutableListOf<E>()
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    init {
+        scope.launch { bus.events(type).collect { events.add(it) } }
+    }
+}
+
+inline fun <reified E : BusEvent> eventProbe(bus: EventBus): EventProbe<E> = EventProbe(bus, E::class.java)
 
 class MockCartStore(private val bus: EventBus, lines: List<CartLine> = emptyList()) : CartStoring {
     override var lines: List<CartLine> = lines
@@ -235,8 +275,12 @@ class MockLoyaltyProvider(
     val redeemCalls = mutableListOf<Pair<String, String?>>()
     val directCalls = mutableListOf<DirectCall>()
     var loadAccountCount = 0; private set
+    var summaryCount = 0; private set
     var loadConfigCount = 0; private set
     var vouchersCount = 0; private set
+
+    /** Demora artificial de las cargas (para testear el dedupe de cargas concurrentes). */
+    var delayMillis: Long = 0
 
     data class DirectCall(val voucherId: String, val productId: String?, val grind: String?, val contact: CheckoutForm)
 
@@ -248,6 +292,18 @@ class MockLoyaltyProvider(
     }
     override suspend fun loadAccount(): LoyaltyAccount {
         loadAccountCount++
+        if (delayMillis > 0) delay(delayMillis)
+        accountError?.let { throw it }
+        return account
+    }
+
+    /**
+     * Refresco liviano: cuenta aparte para asertar qué triggers usan la carga completa
+     * y cuáles la resumida (la real pide solo `/me`).
+     */
+    override suspend fun loadAccountSummary(): LoyaltyAccount {
+        summaryCount++
+        if (delayMillis > 0) delay(delayMillis)
         accountError?.let { throw it }
         return account
     }

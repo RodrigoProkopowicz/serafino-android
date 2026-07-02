@@ -19,6 +19,13 @@ class ProfilePresenter(
     private val router: Router,
 ) : Presenter<ProfileInteractor> {
     fun onAppear() = interactor.handle(ProfileInteractor.Input.OnAppear)
+
+    /** Pull-to-refresh: espera la recarga para que el control nativo mantenga el spinner. */
+    suspend fun refresh() = interactor.refresh()
+
+    /** Mantiene la cuenta al día mientras el Perfil está visible (auto-refresco periódico). */
+    suspend fun autoRefresh() = interactor.autoRefresh()
+
     fun openRedeem() = router.push(AppRoute.LoyaltyRedeem)
     fun signIn() = interactor.handle(ProfileInteractor.Input.SignIn)
     fun signOut() = interactor.handle(ProfileInteractor.Input.SignOut)

@@ -2,6 +2,7 @@ package com.serafino.feature.store.order
 
 import com.serafino.architecture.AnalyticsTracking
 import com.serafino.architecture.DependencyContainer
+import com.serafino.architecture.EventBus
 import com.serafino.architecture.NoOpAnalytics
 import com.serafino.architecture.Presenter
 import com.serafino.architecture.Router
@@ -27,6 +28,7 @@ object OrderStatusModule {
             orderID = orderID,
             checkout = container.require<CheckoutService>(),
             cart = container.require<CartStoring>(),
+            bus = container.require<EventBus>(),
             analytics = container.resolve<AnalyticsTracking>() ?: NoOpAnalytics(),
         )
         return OrderStatusPresenter(interactor, router)

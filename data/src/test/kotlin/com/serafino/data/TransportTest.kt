@@ -8,6 +8,7 @@ import com.serafino.data.store.CoffeeStoreAPIClient
 import com.serafino.data.store.FirestoreProductCatalog
 import com.serafino.domain.services.CheckoutForm
 import com.serafino.domain.services.CheckoutRequest
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -20,10 +21,14 @@ import okio.Buffer
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.io.IOException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Tests de TRANSPORTE de los clientes de red (status codes, errores, headers, paths, caché). El
@@ -36,6 +41,12 @@ private class FakeTransport : Interceptor {
     var lastRequest: Request? = null
     var lastBody: String? = null
 
+    /** Requests interceptadas en total (el interceptor corre en hilos de red). */
+    @Volatile var requestCount = 0
+
+    /** Requests por sufijo de path ("me"/"config"/"ledger"), para asertar la dieta de GETs. */
+    val pathCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     fun respond(status: Int, body: String) { failWith = null; handler = { status to body } }
     fun byPath(map: (String) -> Pair<Int, String>) { failWith = null; handler = { map(it.url.encodedPath) } }
     fun failTransport() { failWith = IOException("not connected") }
@@ -44,6 +55,10 @@ private class FakeTransport : Interceptor {
         val req = chain.request()
         lastRequest = req
         lastBody = req.body?.let { val b = Buffer(); it.writeTo(b); b.readUtf8() }
+        synchronized(this) { requestCount++ }
+        req.url.encodedPath.substringAfterLast('/').let { leaf ->
+            pathCounts.merge(leaf, 1) { a, b -> a + b }
+        }
         failWith?.let { throw it }
         val (code, body) = handler(req)
         return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(code).message("stub")
@@ -53,8 +68,10 @@ private class FakeTransport : Interceptor {
 
 private fun clientWith(t: FakeTransport): OkHttpClient = OkHttpClient.Builder().addInterceptor(t).build()
 
-private class FakeAuth(private val token: String? = "tok-abc") : AuthProviding {
-    override val currentUser: AuthUser? = null
+private class FakeAuth(
+    private val token: String? = "tok-abc",
+    override var currentUser: AuthUser? = null,
+) : AuthProviding {
     override suspend fun signIn() {}
     override fun signOut() {}
     override suspend fun idToken(): String? = token
@@ -116,6 +133,33 @@ class CoffeeStoreApiClientTransportTest {
         t.respond(422, """{"error":"Sin stock"}""")
         val ex = runCatching { client().createPreference(sampleRequest) }.exceptionOrNull()
         assertEquals("Sin stock", (ex as ApiException.Server).serverMessage)
+    }
+
+    /** Compra logueada: manda el Bearer para que el backend acredite los granos. */
+    @Test fun createPreferenceAttachesBearerWhenSignedIn() = runBlocking {
+        t.respond(200, """{"orderId":"o1","init_point":"https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=o1"}""")
+        val auth = FakeAuth(token = "tok-abc", currentUser = AuthUser("u1", "Ana", null))
+        CoffeeStoreAPIClient(auth, clientWith(t)).createPreference(sampleRequest)
+        assertEquals("Bearer tok-abc", t.lastRequest?.header("Authorization"))
+    }
+
+    /**
+     * Con sesión pero SIN token obtenible (refresh caído), crear la preferencia lanza:
+     * degradar a anónimo crearía la compra sin acreditar los granos, en silencio.
+     */
+    @Test fun createPreferenceWithSessionButNoTokenThrows() = runBlocking {
+        t.respond(200, """{"orderId":"o1","init_point":"https://x"}""")
+        val auth = FakeAuth(token = null, currentUser = AuthUser("u1", "Ana", null))
+        val ex = runCatching { CoffeeStoreAPIClient(auth, clientWith(t)).createPreference(sampleRequest) }.exceptionOrNull()
+        assertTrue(ex is ApiException.Server)
+        assertNull(t.lastRequest)   // no salió ninguna request a medias
+    }
+
+    /** Sin sesión, la compra sigue anónima (sin header y sin error). */
+    @Test fun createPreferenceAnonymousWithoutSession() = runBlocking {
+        t.respond(200, """{"orderId":"o1","init_point":"https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=o1"}""")
+        client().createPreference(sampleRequest)   // FakeAuth sin currentUser
+        assertNull(t.lastRequest?.header("Authorization"))
     }
 
     @Test fun createPreferenceInvalidBody() = runBlocking {
@@ -206,6 +250,67 @@ class FirestoreProductCatalogTransportTest {
         t.failTransport()
         assertTrue(runCatching { catalog().loadProducts() }.exceptionOrNull() != null)
     }
+
+    /** Dos cargas concurrentes comparten UNA sola request (dedupe en vuelo). */
+    @Test fun concurrentLoadsShareOneRequest() = runBlocking {
+        // Respuesta lenta para que la segunda carga llegue con la primera en vuelo.
+        t.handler = { Thread.sleep(120); 200 to twoProducts }
+        val c = catalog()
+
+        val first = async { c.loadProducts() }
+        val second = async { c.loadProducts() }
+        val a = first.await()
+        val b = second.await()
+
+        assertEquals(listOf("aurora"), a.map { it.id })
+        assertEquals(listOf("aurora"), b.map { it.id })
+        assertEquals(1, t.requestCount)
+    }
+
+    /** loadProductsIfStale devuelve la caché dentro del TTL y recarga si venció. */
+    @Test fun ifStaleHonorsTTL() = runBlocking {
+        t.respond(200, twoProducts)
+        val c = catalog()
+
+        c.loadProducts()
+        assertEquals(1, t.requestCount)
+
+        // Fresco: no toca la red.
+        val cached = c.loadProductsIfStale(maxAge = 60.seconds)
+        assertEquals(listOf("aurora"), cached.map { it.id })
+        assertEquals(1, t.requestCount)
+
+        // Vencido (TTL cero): recarga.
+        c.loadProductsIfStale(maxAge = Duration.ZERO)
+        assertEquals(2, t.requestCount)
+    }
+
+    /** El snapshot en disco alimenta el arranque sin red del próximo lanzamiento. */
+    @Test fun snapshotSeedsColdStart() = runBlocking {
+        val file = File.createTempFile("snap-", ".json")
+        file.delete()   // el catálogo debe crearlo con la primera respuesta buena
+        try {
+            // Primera "sesión": carga por red y persiste los bytes crudos.
+            t.respond(200, twoProducts)
+            val first = FirestoreProductCatalog(clientWith(t), snapshotFile = file)
+            first.loadProducts()
+            assertTrue(file.exists())
+
+            // Segunda "sesión" sin red: arranca con el último catálogo conocido y su fecha.
+            t.failTransport()
+            val second = FirestoreProductCatalog(clientWith(t), snapshotFile = file)
+            assertEquals(listOf("aurora"), second.cachedProducts.map { it.id })
+            assertNotNull(second.cachedProductsDate)
+            assertEquals("Aurora", second.product("aurora")?.name)
+
+            // El snapshot NO cuenta como carga por red: revalidar con la red caída lanza
+            // pero conserva la caché.
+            assertTrue(runCatching { second.loadProductsIfStale(maxAge = 60.seconds) }.isFailure)
+            assertEquals(listOf("aurora"), second.cachedProducts.map { it.id })
+        } finally {
+            file.delete()
+        }
+    }
 }
 
 /** Transporte del provider de fidelidad backend. */
@@ -236,6 +341,74 @@ class BackendLoyaltyProviderTransportTest {
     @Test fun loadAccountThrowsWhenMeFails() = runBlocking {
         t.byPath { path -> if (path.endsWith("/loyalty/me")) 500 to """{"error":"x"}""" else 200 to "{}" }
         assertTrue(runCatching { provider().loadAccount() }.exceptionOrNull() is ApiException)
+    }
+
+    /** Responde los tres endpoints de lealtad con fixtures válidos (los GETs se cuentan por path). */
+    private fun respondCountingPaths() {
+        t.byPath { path ->
+            when {
+                path.endsWith("/loyalty/me") ->
+                    200 to """{"points":450,"lifetimePoints":450,"tier":"intermedio","tierLabel":"Intermedio"}"""
+                path.endsWith("/loyalty/config") ->
+                    200 to """{"pointsName":"granos","amountPerPoint":1000,"tiers":[
+                        {"key":"base","label":"Base","min":0,"cafeDelDiaPct":5},
+                        {"key":"intermedio","label":"Intermedio","min":300,"cafeDelDiaPct":10}
+                    ]}"""
+                path.endsWith("/loyalty/ledger") ->
+                    200 to """{"entries":[{"id":"e1","type":"earn","points":45,"createdAt":1718000000000}]}"""
+                else -> 404 to "{}"
+            }
+        }
+    }
+
+    /** La escalera (/config) se cachea por sesión: la segunda carga completa no la re-pide. */
+    @Test fun configIsCachedPerSession() = runBlocking {
+        respondCountingPaths()
+        val p = provider()
+
+        p.loadAccount()
+        assertEquals(mapOf("me" to 1, "config" to 1, "ledger" to 1), t.pathCounts.toMap())
+
+        val account = p.loadAccount()
+        // /me y /ledger se refrescan; /config sale de la caché de sesión.
+        assertEquals(mapOf("me" to 2, "config" to 1, "ledger" to 2), t.pathCounts.toMap())
+        assertEquals(listOf("base", "intermedio"), account.tiers.map { it.id })
+    }
+
+    /** loadAccountSummary pide SOLO /me y reusa escalera e historial cacheados. */
+    @Test fun summaryFetchesOnlyMe() = runBlocking {
+        respondCountingPaths()
+        val p = provider()
+
+        p.loadAccount()   // llena las cachés
+        val summary = p.loadAccountSummary()
+
+        assertEquals(mapOf("me" to 2, "config" to 1, "ledger" to 1), t.pathCounts.toMap())
+        assertEquals(450, summary.points)
+        assertEquals(listOf("base", "intermedio"), summary.tiers.map { it.id })   // escalera cacheada
+        assertEquals(1, summary.history.size)                                     // historial cacheado
+    }
+
+    /** loadAccountSummary sin cachés cae en la carga completa. */
+    @Test fun summaryWithoutCachesFallsBackToFullLoad() = runBlocking {
+        respondCountingPaths()
+        provider().loadAccountSummary()
+        assertEquals(mapOf("me" to 1, "config" to 1, "ledger" to 1), t.pathCounts.toMap())
+    }
+
+    /** Un cambio de usuario invalida el historial cacheado (no se muestra el de otra cuenta). */
+    @Test fun summaryRefetchesLedgerForDifferentUser() = runBlocking {
+        respondCountingPaths()
+        val auth = FakeAuth(currentUser = AuthUser("u1", "Ana", null))
+        val p = BackendLoyaltyProvider(auth, client = clientWith(t))
+
+        p.loadAccount()
+        assertEquals(1, t.pathCounts["ledger"])
+
+        // Cambia la sesión: el resumen no puede reusar el historial de u1.
+        auth.currentUser = AuthUser("u2", "Bruno", null)
+        p.loadAccountSummary()
+        assertEquals(2, t.pathCounts["ledger"])   // recargó el ledger (carga completa)
     }
 
     @Test fun redeemSendsIdempotencyKey() = runBlocking {

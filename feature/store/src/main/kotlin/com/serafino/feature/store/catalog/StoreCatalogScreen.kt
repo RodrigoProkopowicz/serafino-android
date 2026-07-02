@@ -31,7 +31,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +56,7 @@ import com.serafino.designsystem.store.CatalogSkeletonView
 import com.serafino.designsystem.store.ProductCardModel
 import com.serafino.designsystem.store.ProductImage
 import com.serafino.designsystem.store.RoastFilterBar
+import com.serafino.designsystem.store.SerafinoPullToRefresh
 import com.serafino.designsystem.tv.CinematicHero
 import com.serafino.designsystem.tv.ContentRail
 import com.serafino.designsystem.tv.ProductPosterCard
@@ -63,31 +68,49 @@ import com.serafino.domain.entities.store.RoastFilter
 fun StoreCatalogScreen(presenter: StoreCatalogPresenter) {
     val interactor = presenter.interactor
     LaunchedEffect(Unit) { presenter.onAppear() }
+    // Auto-refresco mientras la Tienda está visible; salir del tab cancela el bucle.
+    LaunchedEffect(Unit) { presenter.autoRefresh() }
 
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(Theme.Palette.noir)) {
         AppBackground()
 
-        when (val state = interactor.state) {
-            StoreCatalogInteractor.State.Idle, StoreCatalogInteractor.State.Loading ->
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { CatalogSkeletonView() }
-            StoreCatalogInteractor.State.Empty ->
-                Box(Modifier.fillMaxSize().padding(top = 80.dp, start = Theme.Spacing.lg, end = Theme.Spacing.lg), contentAlignment = Alignment.TopCenter) {
-                    EmptyStateView(Icons.Filled.ShoppingBag, "Catálogo vacío", "No hay cafés disponibles por ahora. Volvé en un rato.")
+        // Pull-to-refresh nativo; el indicador baja para quedar visible sobre el hero,
+        // debajo de la barra flotante del logo (este scroll sangra bajo el status bar).
+        SerafinoPullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = {
+                scope.launch {
+                    refreshing = true
+                    presenter.refresh()
+                    refreshing = false
                 }
-            is StoreCatalogInteractor.State.Error ->
-                Column(
-                    Modifier.fillMaxSize().padding(top = 80.dp, start = Theme.Spacing.lg, end = Theme.Spacing.lg),
-                    verticalArrangement = Arrangement.spacedBy(Theme.Spacing.lg),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    EmptyStateView(Icons.Filled.WifiOff, "No se pudo cargar", state.message)
-                    CTAButton("Reintentar", icon = Icons.Filled.Refresh, onClick = presenter::retry)
-                }
-            StoreCatalogInteractor.State.Loaded ->
-                LoadedContent(interactor.data, scrollState, presenter::didSelect, presenter::selectRoast)
+            },
+            modifier = Modifier.fillMaxSize(),
+            indicatorTopPadding = 52.dp,
+        ) {
+            when (val state = interactor.state) {
+                StoreCatalogInteractor.State.Idle, StoreCatalogInteractor.State.Loading ->
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { CatalogSkeletonView() }
+                StoreCatalogInteractor.State.Empty ->
+                    Box(Modifier.fillMaxSize().padding(top = 80.dp, start = Theme.Spacing.lg, end = Theme.Spacing.lg), contentAlignment = Alignment.TopCenter) {
+                        EmptyStateView(Icons.Filled.ShoppingBag, "Catálogo vacío", "No hay cafés disponibles por ahora. Volvé en un rato.")
+                    }
+                is StoreCatalogInteractor.State.Error ->
+                    Column(
+                        Modifier.fillMaxSize().padding(top = 80.dp, start = Theme.Spacing.lg, end = Theme.Spacing.lg),
+                        verticalArrangement = Arrangement.spacedBy(Theme.Spacing.lg),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        EmptyStateView(Icons.Filled.WifiOff, "No se pudo cargar", state.message)
+                        CTAButton("Reintentar", icon = Icons.Filled.Refresh, onClick = presenter::retry)
+                    }
+                StoreCatalogInteractor.State.Loaded ->
+                    LoadedContent(interactor.data, scrollState, presenter::didSelect, presenter::selectRoast)
+            }
         }
 
         // Barra superior flotante: wordmark (tap → scroll al inicio) + carrito.

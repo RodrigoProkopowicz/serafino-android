@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.serafino.architecture.AnalyticsEvent
 import com.serafino.architecture.AnalyticsTracking
 import com.serafino.architecture.BeansEarnedEvent
+import com.serafino.architecture.RewardRedeemedEvent
 import com.serafino.architecture.EventBus
 import com.serafino.architecture.Interactor
 import com.serafino.architecture.NoOpAnalytics
@@ -303,6 +304,9 @@ class RedeemInteractor(
                     data = data.copy(redeemingID = null, resultMessage = confirmation(outcome))
                     Haptics.success()
                     bus.publish(BeansEarnedEvent(amount = -outcome.voucher.cost))
+                    // Hay un vale nuevo: el Checkout recarga su lista y el Perfil coalescea
+                    // este evento con el BeansEarnedEvent de arriba (una sola recarga).
+                    bus.publish(RewardRedeemedEvent())
                     performLoad()
                 }
                 .onFailure { data = data.copy(redeemingID = null, errorMessage = it.message ?: "No se pudo canjear.") }
@@ -348,6 +352,8 @@ class RedeemInteractor(
                         resultMessage = "¡Listo! Tu premio sale con envío gratis en San Miguel. Te contactamos para coordinar la entrega.",
                     )
                     Haptics.success()
+                    // Se consumió un vale: avisa al Checkout (vales) y al Perfil (estado).
+                    bus.publish(RewardRedeemedEvent())
                     performLoad()
                 }
                 .onFailure { data = data.copy(shippingID = null, shippingSubmitError = it.message ?: "No se pudo pedir el envío.") }

@@ -3,6 +3,7 @@ package com.serafino.feature.store.checkout
 import com.serafino.architecture.AnalyticsTracking
 import com.serafino.architecture.AppRoute
 import com.serafino.architecture.DependencyContainer
+import com.serafino.architecture.EventBus
 import com.serafino.architecture.NoOpAnalytics
 import com.serafino.architecture.Presenter
 import com.serafino.architecture.Router
@@ -46,6 +47,7 @@ object CheckoutModule {
             loyalty = container.resolve<LoyaltyProviding>(),
             catalog = container.resolve<ProductCatalogProviding>(),
             profile = container.resolve<CheckoutProfileStoring>(),
+            bus = container.resolve<EventBus>(),
         )
         return CheckoutPresenter(interactor, router)
     }

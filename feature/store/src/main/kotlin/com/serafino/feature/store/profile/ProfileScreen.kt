@@ -35,6 +35,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -56,7 +61,9 @@ import com.serafino.designsystem.components.EmptyStateView
 import com.serafino.designsystem.components.GlassCard
 import com.serafino.designsystem.components.SectionLabel
 import com.serafino.designsystem.loyalty.GranoMark
+import com.serafino.designsystem.store.SerafinoPullToRefresh
 import com.serafino.designsystem.symbolIcon
+import kotlinx.coroutines.launch
 import com.serafino.domain.SellerInfo
 import com.serafino.domain.entities.loyalty.LoyaltyTier
 
@@ -66,23 +73,41 @@ fun ProfileScreen(presenter: ProfilePresenter) {
     val interactor = presenter.interactor
     val data = interactor.data
     LaunchedEffect(Unit) { presenter.onAppear() }
+    // Auto-refresco mientras el Perfil está visible; salir del tab cancela el bucle.
+    LaunchedEffect(Unit) { presenter.autoRefresh() }
+
+    val scope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(Theme.Palette.noir)) {
         AppBackground()
-        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(Theme.Spacing.md), verticalArrangement = Arrangement.spacedBy(Theme.Spacing.lg)) {
-            when (val state = interactor.state) {
-                ProfileInteractor.State.SignedOut, ProfileInteractor.State.SigningIn ->
-                    SignInGate(state == ProfileInteractor.State.SigningIn, data.signInError, presenter::signIn)
-                ProfileInteractor.State.Loading ->
-                    Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Theme.Palette.caramel)
-                    }
-                is ProfileInteractor.State.Error ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Theme.Spacing.lg)) {
-                        EmptyStateView(Icons.Filled.WifiOff, "No pudimos cargar tu perfil", state.message)
-                        CTAButton("Reintentar", icon = Icons.Filled.Refresh, onClick = presenter::retry)
-                    }
-                ProfileInteractor.State.Loaded -> Loaded(data, presenter)
+        // Pull-to-refresh nativo: fuerza la recarga completa de la cuenta (ignora el TTL).
+        SerafinoPullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = {
+                scope.launch {
+                    refreshing = true
+                    presenter.refresh()
+                    refreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(Theme.Spacing.md), verticalArrangement = Arrangement.spacedBy(Theme.Spacing.lg)) {
+                when (val state = interactor.state) {
+                    ProfileInteractor.State.SignedOut, ProfileInteractor.State.SigningIn ->
+                        SignInGate(state == ProfileInteractor.State.SigningIn, data.signInError, presenter::signIn)
+                    ProfileInteractor.State.Loading ->
+                        Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Theme.Palette.caramel)
+                        }
+                    is ProfileInteractor.State.Error ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Theme.Spacing.lg)) {
+                            EmptyStateView(Icons.Filled.WifiOff, "No pudimos cargar tu perfil", state.message)
+                            CTAButton("Reintentar", icon = Icons.Filled.Refresh, onClick = presenter::retry)
+                        }
+                    ProfileInteractor.State.Loaded -> Loaded(data, presenter)
+                }
             }
         }
     }

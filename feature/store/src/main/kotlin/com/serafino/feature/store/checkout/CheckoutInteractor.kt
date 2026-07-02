@@ -5,8 +5,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.serafino.architecture.AnalyticsEvent
 import com.serafino.architecture.AnalyticsTracking
+import com.serafino.architecture.EventBus
 import com.serafino.architecture.Interactor
 import com.serafino.architecture.NoOpAnalytics
+import com.serafino.architecture.RewardRedeemedEvent
+import com.serafino.architecture.events
 import com.serafino.domain.entities.loyalty.LoyaltyRewardType
 import com.serafino.domain.entities.loyalty.LoyaltyVoucher
 import com.serafino.domain.entities.store.GrindOption
@@ -41,6 +44,8 @@ class CheckoutInteractor(
     private val loyalty: LoyaltyProviding? = null,
     private val catalog: ProductCatalogProviding? = null,
     private val profile: CheckoutProfileStoring? = null,
+    /** Bus (opcional): para recargar los vales si el usuario canjea con el Checkout ya montado. */
+    private val bus: EventBus? = null,
 ) : Interactor<CheckoutInteractor.Data, CheckoutInteractor.Input, CheckoutInteractor.State> {
 
     sealed interface PromoState {
@@ -65,6 +70,12 @@ class CheckoutInteractor(
         val total: Int = 0,
         val freeShipping: Boolean = false,
         val promoLocked: Boolean = false,
+        /**
+         * Hay un código válido pero alguna línea cobrable ya trae promo del catálogo, así que
+         * el código no se le apila (un único descuento por producto). Se avisa para que el
+         * descuento menor —o nulo— no confunda. Espeja `hasDiscounted` del Checkout web.
+         */
+        val promoSkipsDiscounted: Boolean = false,
         val notice: String? = null,
         val itemCount: Int = 0,
         val payment: PaymentLink? = null,
@@ -107,6 +118,7 @@ class CheckoutInteractor(
         profile?.load()?.let { saved ->
             data = data.copy(form = saved, freeShipping = CheckoutValidator.isSanMiguel(saved.city, saved.zip))
         }
+        bindEvents()
     }
 
     override fun handle(input: Input) {
@@ -159,7 +171,22 @@ class CheckoutInteractor(
             subtotal = totals.subtotal,
             discount = totals.discount,
             total = totals.total,
+            // Aviso de paridad con el web: hay un código válido pero alguna línea cobrable ya
+            // está en promo del catálogo (y no es el café del día), por lo que el código no se
+            // le apila. Así el usuario entiende por qué el descuento es menor (o nulo).
+            promoSkipsDiscounted = percent != null && cart.lines.any { line ->
+                line.discounted && line.productID != cafeDelDia?.productID
+            },
         )
+    }
+
+    private fun bindEvents() {
+        val bus = bus ?: return
+        // Un canje se concretó (vale nuevo o consumido) con el Checkout ya montado:
+        // recargamos la lista para que el usuario vea sus vales al día.
+        scope.launch {
+            bus.events<RewardRedeemedEvent>().collect { loadVouchers() }
+        }
     }
 
     private fun activeCafeDelDia(): OrderPricing.CafeDelDia? {
@@ -205,6 +232,14 @@ class CheckoutInteractor(
         scope.launch {
             val active = runCatching { loyalty.vouchers() }.getOrDefault(emptyList()).filter { it.isUsable() }
             data = data.copy(vouchers = active)
+            // Si el vale seleccionado ya no está (se consumió o venció en otra pantalla),
+            // deseleccionamos y recalculamos — el pedido no debe prometer un premio que ya
+            // no se va a mandar. selectVoucher(null) limpia opciones/nota/warning y totales.
+            val selected = data.selectedVoucherID
+            if (selected != null && active.none { it.id == selected }) {
+                data = data.copy(selectedVoucherID = null)
+                selectVoucher(null)
+            }
             if (active.any { it.type == LoyaltyRewardType.FreeProduct || it.type == LoyaltyRewardType.CafeDelDia } && catalog != null) {
                 allProducts = runCatching { catalog.loadProducts() }.getOrDefault(emptyList())
             }

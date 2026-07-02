@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.serafino.architecture.AnalyticsEvent
 import com.serafino.architecture.AnalyticsTracking
+import com.serafino.architecture.AppDidBecomeActiveEvent
 import com.serafino.architecture.CartChangedEvent
 import com.serafino.architecture.EventBus
 import com.serafino.architecture.Interactor
@@ -17,21 +18,37 @@ import com.serafino.domain.entities.store.RoastFilter
 import com.serafino.domain.entities.store.pricing
 import com.serafino.domain.services.CartStoring
 import com.serafino.domain.services.ProductCatalogProviding
+import java.util.Date
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
  * Carga el catálogo de la tienda desde Firestore, arma las tarjetas con el precio efectivo y
  * mantiene el contador de la bolsa en sync vía EventBus. Espeja `StoreCatalogInteractor` de iOS.
+ *
+ * Frescura: la primera carga muestra el último catálogo conocido (snapshot) al instante
+ * y revalida por red; los reingresos al tab y la vuelta al foreground refrescan en
+ * segundo plano solo si el TTL venció; el pull-to-refresh y el tick periódico de
+ * [autoRefreshInterval] (mientras la Tienda está visible) fuerzan la recarga.
  */
 class StoreCatalogInteractor(
     private val catalog: ProductCatalogProviding,
     private val cart: CartStoring,
     private val bus: EventBus,
     private val analytics: AnalyticsTracking = NoOpAnalytics(),
+    /** Cada cuánto se auto-refresca el catálogo mientras la Tienda está visible. */
+    private val autoRefreshInterval: Duration = 5.seconds,
+    /** Ventana de frescura: reingresos al tab / foreground dentro de este TTL no tocan la red. */
+    private val staleTTL: Duration = 15.seconds,
+    private val now: () -> Date = ::Date,
 ) : Interactor<StoreCatalogInteractor.Data, StoreCatalogInteractor.Input, StoreCatalogInteractor.State> {
 
     data class Data(
@@ -61,6 +78,13 @@ class StoreCatalogInteractor(
     override var state by mutableStateOf<State>(State.Idle)
         private set
 
+    /**
+     * Última carga POR RED exitosa: gatea los refrescos de ciclo de vida (TTL). Arranca
+     * con la fecha del snapshot si se mostró desde caché (siempre vencida → revalida).
+     */
+    var lastUpdatedAt: Date? = null
+        private set
+
     private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private var didLoad = false
     private var restProducts: List<Product> = emptyList()
@@ -72,7 +96,17 @@ class StoreCatalogInteractor(
 
     override fun handle(input: Input) {
         when (input) {
-            is Input.OnAppear -> if (!didLoad) load()
+            is Input.OnAppear -> {
+                // Reingreso al tab con catálogo ya cargado: refrescamos en segundo plano (sin
+                // parpadeo) solo si el TTL venció — alternar tabs rápido no cuesta red. Si la
+                // carga inicial sigue en curso, no duplicamos el pedido.
+                if (didLoad) {
+                    if (state == State.Loading) return
+                    refreshIfStale()
+                } else {
+                    load()
+                }
+            }
             is Input.Retry -> load()
             is Input.SelectRoast -> {
                 if (input.roast != data.selectedRoast) {
@@ -85,19 +119,69 @@ class StoreCatalogInteractor(
 
     fun dispose() = scope.cancel()
 
+    /**
+     * Mientras la Tienda esté en pantalla, refresca el catálogo en segundo plano (sin parpadeo)
+     * cada [autoRefreshInterval]. El `LaunchedEffect` de la pantalla cancela este bucle al salir
+     * del tab, así no consultamos al backend desde otras pestañas.
+     */
+    suspend fun autoRefresh() {
+        while (currentCoroutineContext().isActive) {
+            delay(autoRefreshInterval)
+            performLoad()
+        }
+    }
+
+    /**
+     * Pull-to-refresh: fuerza la recarga (ignora el TTL) sin parpadeo; el control nativo
+     * ya muestra su spinner.
+     */
+    suspend fun refresh() {
+        performLoad()
+    }
+
+    // MARK: - Private
+
+    private val isStale: Boolean
+        get() {
+            val last = lastUpdatedAt ?: return true
+            return now().time - last.time > staleTTL.inWholeMilliseconds
+        }
+
+    /** Refresco en segundo plano gateado por TTL (reingreso al tab / vuelta al foreground). */
+    private fun refreshIfStale() {
+        if (!isStale) return
+        scope.launch { performLoad() }
+    }
+
     private fun load() {
         didLoad = true
-        state = State.Loading
         analytics.track(AnalyticsEvent.Screen("store_catalog"))
-        scope.launch {
-            runCatching { catalog.loadProducts() }
-                .onSuccess { build(it) }
-                .onFailure { error ->
-                    if (data.products.isEmpty() && data.featured == null) {
-                        state = State.Error(error.message ?: "No se pudo cargar el catálogo.")
-                    }
-                }
+        // Arranque con caché (snapshot en disco u otra pantalla que ya cargó): mostramos el
+        // último catálogo conocido al instante, sin skeleton, y revalidamos por red detrás.
+        val cached = catalog.cachedProducts
+        if (cached.isNotEmpty()) {
+            build(cached)
+            lastUpdatedAt = catalog.cachedProductsDate
+            scope.launch { performLoad() }
+            return
         }
+        state = State.Loading
+        scope.launch { performLoad() }
+    }
+
+    private suspend fun performLoad() {
+        runCatching { catalog.loadProducts() }
+            .onSuccess { products ->
+                build(products)
+                lastUpdatedAt = now()
+            }
+            .onFailure { error ->
+                // Si ya hay contenido en pantalla, no lo reemplazamos por un error: queda el
+                // catálogo anterior (lastUpdatedAt no avanza, así el próximo trigger reintenta).
+                if (data.products.isEmpty() && data.featured == null) {
+                    state = State.Error(error.message ?: "No se pudo cargar el catálogo.")
+                }
+            }
     }
 
     private fun build(products: List<Product>) {
@@ -137,6 +221,13 @@ class StoreCatalogInteractor(
     private fun bindEvents() {
         scope.launch {
             bus.events<CartChangedEvent>().collect { data = data.copy(cartCount = it.count) }
+        }
+        // Vuelta al foreground (un solo publisher a nivel App): refresco gateado por TTL,
+        // así un background corto no cuesta red y uno largo revalida el catálogo.
+        scope.launch {
+            bus.events<AppDidBecomeActiveEvent>().collect {
+                if (didLoad && state != State.Loading) refreshIfStale()
+            }
         }
     }
 }

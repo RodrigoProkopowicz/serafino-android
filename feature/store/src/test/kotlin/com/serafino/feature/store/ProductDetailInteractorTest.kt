@@ -1,9 +1,11 @@
 package com.serafino.feature.store
 
 import com.serafino.architecture.EventBus
+import com.serafino.domain.entities.store.ProductFormat
 import com.serafino.domain.entities.store.ProductReview
 import com.serafino.domain.entities.store.ProductReviews
 import com.serafino.feature.store.detail.ProductDetailInteractor
+import kotlin.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -94,5 +96,43 @@ class ProductDetailInteractorTest {
         val (i, _, _) = make(productID = "no-existe")
         i.handle(ProductDetailInteractor.Input.OnAppear)
         assertEquals(ProductDetailInteractor.State.NotFound, i.state)
+    }
+
+    /** Reingresar al detalle refresca precio/promo sin pisar la selección del usuario. */
+    @Test fun reentryRefreshesPricingKeepingSelection() {
+        val bus = EventBus()
+        val cart = MockCartStore(bus)
+        val catalog = MockProductCatalog()
+        val i = ProductDetailInteractor(
+            "aurora", catalog, cart, MockReviewsProvider(), bus,
+            staleTTL = Duration.ZERO,
+        )
+        i.handle(ProductDetailInteractor.Input.OnAppear)
+        assertEquals(ProductDetailInteractor.State.Loaded, i.state)   // resolvió por caché
+        // La caché pudo venir del snapshot en disco: el primer ingreso también revalida
+        // en segundo plano (con el provider real es gratis dentro del TTL).
+        assertEquals(1, catalog.loadCount)
+
+        i.handle(ProductDetailInteractor.Input.SelectFormat("500 g"))
+        i.handle(ProductDetailInteractor.Input.IncrementQuantity)
+        assertEquals(31450, i.data.selectedPricing.price)
+
+        // El admin cambia la promo del formato elegido; al volver al detalle (pop de un push)
+        // se ve el precio nuevo sin resetear formato ni cantidad.
+        catalog.products = listOf(
+            SampleProducts.aurora.copy(
+                formats = listOf(
+                    ProductFormat("Degustación", "125 g", 12000, 10200),
+                    ProductFormat("Estándar", "250 g", 20000, 17000),
+                    ProductFormat("Rendidor", "500 g", 37000, 29000),
+                ),
+            ),
+        )
+        i.handle(ProductDetailInteractor.Input.OnAppear)
+
+        assertEquals(2, catalog.loadCount)                    // revalidó el catálogo
+        assertEquals("500 g", i.data.selectedWeight)          // la selección no se pisa
+        assertEquals(2, i.data.quantity)
+        assertEquals(29000, i.data.selectedPricing.price)
     }
 }

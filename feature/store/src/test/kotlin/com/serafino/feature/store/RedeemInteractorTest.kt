@@ -2,6 +2,7 @@ package com.serafino.feature.store
 
 import com.serafino.architecture.BeansEarnedEvent
 import com.serafino.architecture.EventBus
+import com.serafino.architecture.RewardRedeemedEvent
 import com.serafino.architecture.events
 import com.serafino.domain.entities.loyalty.LoyaltyAccount
 import com.serafino.domain.entities.loyalty.LoyaltyReward
@@ -83,6 +84,7 @@ class RedeemInteractorTest {
         val earned = mutableListOf<Int>()
         val scope = CoroutineScope(mainRule.dispatcher)
         scope.launch { bus.events<BeansEarnedEvent>().collect { earned.add(it.amount) } }
+        val redeems = eventProbe<RewardRedeemedEvent>(bus)
         i.handle(RedeemInteractor.Input.OnAppear)
         i.handle(RedeemInteractor.Input.Redeem("free-125"))
         assertEquals(1, loyalty.redeemCalls.size)
@@ -90,7 +92,27 @@ class RedeemInteractorTest {
         assertTrue(loyalty.redeemCalls.first().second!!.isNotEmpty())
         assertNotNull(i.data.resultMessage)
         assertEquals(listOf(-250), earned)
+        // Hay un vale nuevo: el Checkout y el Perfil se enteran por este evento.
+        assertEquals(1, redeems.events.size)
         scope.cancel()
+    }
+
+    /**
+     * Un segundo canje exitoso del mismo premio usa una clave de idempotencia nueva —
+     * reusar la anterior haría que el backend devuelva el vale viejo sin debitar.
+     */
+    @Test fun secondSuccessfulRedeemUsesFreshKey() {
+        val (i, loyalty, _) = make()
+        i.handle(RedeemInteractor.Input.OnAppear)
+        i.handle(RedeemInteractor.Input.Redeem("free-125"))
+        assertEquals(1, loyalty.redeemCalls.size)
+        i.handle(RedeemInteractor.Input.Redeem("free-125"))
+        assertEquals(2, loyalty.redeemCalls.size)
+        val first = loyalty.redeemCalls[0].second
+        val second = loyalty.redeemCalls[1].second
+        assertNotNull(first)
+        assertNotNull(second)
+        assertTrue(first != second)
     }
 
     @Test fun idempotencyKeyStableAcrossRetries() {
@@ -149,6 +171,17 @@ class RedeemInteractorTest {
         assertEquals("1663", call.contact.zip)
         assertNull(i.data.shippingVoucher)
         assertTrue(i.data.resultMessage!!.contains("envío"))
+    }
+
+    /** El canje directo con envío publica RewardRedeemedEvent (se consumió un vale). */
+    @Test fun directRedeemPublishesRewardRedeemed() {
+        val (i, _, bus) = make(vouchers = listOf(SampleLoyalty.voucher("v1", LoyaltyRewardType.FreeProduct, format = "250 g")))
+        val redeems = eventProbe<RewardRedeemedEvent>(bus)
+        i.handle(RedeemInteractor.Input.OnAppear)
+        i.handle(RedeemInteractor.Input.RedeemDirect("v1"))
+        fillValidShipping(i)
+        i.handle(RedeemInteractor.Input.ConfirmShipping)
+        assertEquals(1, redeems.events.size)
     }
 
     @Test fun directRedeemMerchHasNoGrind() {

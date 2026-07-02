@@ -269,7 +269,17 @@ private fun PromoCard(data: CheckoutInteractor.Data, presenter: CheckoutPresente
                 Text("Aplicar", style = SerafinoType.subheadline, fontWeight = FontWeight.SemiBold, color = Theme.Palette.caramel, modifier = Modifier.clickable { presenter.validatePromo() }.padding(8.dp))
             }
             when (val promo = data.promoState) {
-                is CheckoutInteractor.PromoState.Valid -> Text("Código aplicado: -${promo.percent}%", style = SerafinoType.caption, color = Theme.Palette.green)
+                is CheckoutInteractor.PromoState.Valid -> {
+                    Text("Código aplicado: -${promo.percent}%", style = SerafinoType.caption, color = Theme.Palette.green)
+                    if (data.promoSkipsDiscounted) {
+                        // Un único descuento por producto: el código no toca lo que ya está en promo.
+                        Text(
+                            "No se aplica a los productos que ya están en promoción.",
+                            style = SerafinoType.caption,
+                            color = Theme.Palette.latte,
+                        )
+                    }
+                }
                 is CheckoutInteractor.PromoState.Invalid -> Text(promo.message, style = SerafinoType.caption, color = Theme.Palette.berry)
                 CheckoutInteractor.PromoState.Validating -> Text("Validando…", style = SerafinoType.caption, color = Theme.Palette.latte)
                 CheckoutInteractor.PromoState.None -> {}

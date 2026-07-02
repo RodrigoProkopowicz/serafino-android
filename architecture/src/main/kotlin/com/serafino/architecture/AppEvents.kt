@@ -21,3 +21,23 @@ data class BeansEarnedEvent(val amount: Int) : BusEvent
 
 /** Cambió la sesión del usuario (login/logout/restauración). El Perfil alterna gate/contenido. */
 data class AuthChangedEvent(val isSignedIn: Boolean) : BusEvent
+
+/**
+ * Se emite cuando una compra queda APROBADA (lo publica OrderStatus al confirmar el pago).
+ * El Perfil lo escucha para reconciliar los granos contra el webhook de Mercado Pago
+ * (reintentos escalonados hasta ver el saldo acreditado).
+ */
+data class PurchaseCompletedEvent(val orderID: String) : BusEvent
+
+/**
+ * Se emite cuando un canje se concreta (vale emitido por granos o vale consumido con envío).
+ * El Perfil lo escucha para refrescar la cuenta y el Checkout para recargar sus vales.
+ */
+class RewardRedeemedEvent : BusEvent
+
+/**
+ * Se emite UNA sola vez por retorno al foreground (lo publica la raíz de la app vía el
+ * lifecycle de la Activity). Los interactores que cachean datos remotos lo escuchan y
+ * refrescan solo si su TTL venció — volver de un background corto no cuesta red.
+ */
+class AppDidBecomeActiveEvent : BusEvent

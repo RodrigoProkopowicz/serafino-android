@@ -20,6 +20,13 @@ class StoreCatalogPresenter(
     private val router: Router,
 ) : Presenter<StoreCatalogInteractor> {
     fun onAppear() = interactor.handle(StoreCatalogInteractor.Input.OnAppear)
+
+    /** Mantiene el catálogo al día mientras la Tienda está visible (auto-refresco periódico). */
+    suspend fun autoRefresh() = interactor.autoRefresh()
+
+    /** Pull-to-refresh: espera la recarga para que el control nativo mantenga el spinner. */
+    suspend fun refresh() = interactor.refresh()
+
     fun retry() = interactor.handle(StoreCatalogInteractor.Input.Retry)
     fun selectRoast(roast: RoastFilter) {
         Haptics.tap()

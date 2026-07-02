@@ -44,23 +44,30 @@ import com.serafino.domain.entities.store.Pricing
 import com.serafino.domain.entities.store.RoastFilter
 import com.serafino.domain.services.Money
 
-/** Precio efectivo + (si hay promo) precio de lista tachado y % de descuento. Espeja `PriceView`. */
+/**
+ * Precio en dos líneas cuando hay promo: el de lista tachado arriba (chico, secundario) y el
+ * efectivo abajo (prominente), con el % de descuento al costado. Espeja `PriceView` de iOS.
+ */
 @Composable
 fun PriceView(pricing: Pricing, modifier: Modifier = Modifier, prominent: Boolean = false) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-        Text(
-            Money.ars(pricing.price),
-            style = if (prominent) SerafinoType.title2 else SerafinoType.headline,
-            fontWeight = FontWeight.Bold,
-            color = Theme.Palette.foam,
-        )
-        if (pricing.active) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (pricing.active) {
+                Text(
+                    Money.ars(pricing.original),
+                    style = if (prominent) SerafinoType.subheadline else SerafinoType.caption,
+                    color = Theme.Palette.latte,
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                )
+            }
             Text(
-                Money.ars(pricing.original),
-                style = if (prominent) SerafinoType.subheadline else SerafinoType.caption,
-                color = Theme.Palette.latte,
-                textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                Money.ars(pricing.price),
+                style = if (prominent) SerafinoType.title2 else SerafinoType.headline,
+                fontWeight = FontWeight.Bold,
+                color = Theme.Palette.foam,
             )
+        }
+        if (pricing.active) {
             Text(
                 "-${pricing.discountPct}%",
                 style = SerafinoType.caption2,

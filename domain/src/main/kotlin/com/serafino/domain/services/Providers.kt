@@ -12,6 +12,8 @@ import com.serafino.domain.entities.loyalty.RedeemOutcome
 import com.serafino.domain.entities.store.CartLine
 import com.serafino.domain.entities.store.Product
 import com.serafino.domain.entities.store.ProductReviews
+import java.util.Date
+import kotlin.time.Duration
 
 /**
  * Contratos de servicios del dominio (las "fronteras" con datos/persistencia). Las
@@ -71,8 +73,24 @@ interface CartStoring {
 interface ProductCatalogProviding {
     /** Carga el catálogo visible (filtra ocultos) y actualiza la caché interna. */
     suspend fun loadProducts(): List<Product>
+
+    /**
+     * Recarga el catálogo solo si la última carga exitosa es más vieja que [maxAge];
+     * si sigue fresco devuelve la caché sin tocar la red. Default: siempre recarga.
+     */
+    suspend fun loadProductsIfStale(maxAge: Duration): List<Product> = loadProducts()
+
     /** Producto por id desde la caché (null si el catálogo aún no se cargó). */
     fun product(id: String): Product?
+
+    /**
+     * Último catálogo conocido (memoria o snapshot en disco), vacío si nunca se cargó.
+     * Permite arrancar mostrando contenido al instante mientras se revalida por red.
+     */
+    val cachedProducts: List<Product> get() = emptyList()
+
+    /** Fecha del contenido de [cachedProducts] (red o snapshot), para gatear los refrescos. */
+    val cachedProductsDate: Date? get() = null
 }
 
 /** Reseñas verificadas de un producto (solo lectura). */
@@ -90,6 +108,13 @@ interface LoyaltyProviding {
 
     /** Estado de fidelidad del usuario (incluye canje y Café del Día con estado por usuario). */
     suspend fun loadAccount(): LoyaltyAccount
+
+    /**
+     * Refresco LIVIANO del estado del usuario, para los triggers frecuentes de ciclo de vida
+     * (reingreso al tab, vuelta al foreground). Las implementaciones pueden reusar la escalera
+     * y el historial ya cargados y pedir solo el estado (`/me`). Default: carga completa.
+     */
+    suspend fun loadAccountSummary(): LoyaltyAccount = loadAccount()
 
     /** Canjea un premio por granos. Devuelve el vale emitido + el saldo nuevo. */
     suspend fun redeem(rewardId: String, idempotencyKey: String?): RedeemOutcome

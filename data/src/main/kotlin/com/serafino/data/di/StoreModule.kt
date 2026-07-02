@@ -25,7 +25,10 @@ import com.serafino.domain.services.ReviewsProviding
 class StoreModule(private val context: Context) : DependencyModule {
 
     override fun register(container: DependencyContainer) {
-        container.register<ProductCatalogProviding>(DependencyScope.Singleton) { FirestoreProductCatalog() }
+        // Snapshot en disco del último catálogo bueno: arrancar sin red muestra contenido igual.
+        container.register<ProductCatalogProviding>(DependencyScope.Singleton) {
+            FirestoreProductCatalog(snapshotFile = java.io.File(context.cacheDir, "catalog-snapshot.json"))
+        }
 
         val dao = AppPersistence.database(context).cartDao()
         container.register<CartStoring>(DependencyScope.Singleton) { resolver ->

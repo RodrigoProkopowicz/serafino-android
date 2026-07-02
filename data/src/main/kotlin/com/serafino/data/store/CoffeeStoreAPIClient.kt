@@ -82,7 +82,12 @@ class CoffeeStoreAPIClient(
         return CoffeeStoreResponseMapper.reviews(data)
     }
 
-    /** Devuelve `(statusCode, body)`; con `authenticated` adjunta el ID token si hay sesión. */
+    /**
+     * Devuelve `(statusCode, body)`; con `authenticated` adjunta el ID token si hay sesión;
+     * sin sesión sigue anónimo. Si HAY sesión pero el token no se puede obtener (refresh
+     * caído), lanza: degradar a anónimo acá crearía la compra sin acreditar los granos,
+     * en silencio.
+     */
     private suspend fun send(
         method: String,
         path: String,
@@ -98,10 +103,12 @@ class CoffeeStoreAPIClient(
             builder.method(method, ByteArray(0).toRequestBody(null))
         }
         val session = auth
-        if (authenticated && session != null) {
-            runCatching { session.idToken() }.getOrNull()?.let { token ->
-                builder.header("Authorization", "Bearer $token")
+        if (authenticated && session?.currentUser != null) {
+            val token = runCatching { session.idToken() }.getOrNull()
+            if (token.isNullOrEmpty()) {
+                throw ApiException.Server("No pudimos validar tu sesión. Revisá tu conexión y probá de nuevo.")
             }
+            builder.header("Authorization", "Bearer $token")
         }
         return Http.execute(builder.build(), client)
     }
