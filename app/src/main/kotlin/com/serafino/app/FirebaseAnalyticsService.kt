@@ -2,7 +2,6 @@ package com.serafino.app
 
 import android.content.Context
 import android.os.Bundle
-import androidx.core.os.bundleOf
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.serafino.architecture.AnalyticsEvent
 import com.serafino.architecture.AnalyticsTracking
@@ -20,7 +19,7 @@ class FirebaseAnalyticsService(context: Context) : AnalyticsTracking {
         when (event) {
             is AnalyticsEvent.Screen -> analytics.logEvent(
                 FirebaseAnalytics.Event.SCREEN_VIEW,
-                bundleOf(FirebaseAnalytics.Param.SCREEN_NAME to event.name),
+                Bundle().apply { putString(FirebaseAnalytics.Param.SCREEN_NAME, event.name) },
             )
 
             is AnalyticsEvent.ViewItem -> {
@@ -37,40 +36,43 @@ class FirebaseAnalyticsService(context: Context) : AnalyticsTracking {
 
             is AnalyticsEvent.AddToCart -> analytics.logEvent(
                 FirebaseAnalytics.Event.ADD_TO_CART,
-                bundleOf(
-                    FirebaseAnalytics.Param.VALUE to event.value.toLong(),
-                    FirebaseAnalytics.Param.CURRENCY to CURRENCY,
-                    FirebaseAnalytics.Param.ITEMS to arrayOf(
-                        bundleOf(
-                            FirebaseAnalytics.Param.ITEM_ID to event.id,
-                            FirebaseAnalytics.Param.ITEM_NAME to event.name,
-                            FirebaseAnalytics.Param.QUANTITY to event.quantity.toLong(),
+                Bundle().apply {
+                    putLong(FirebaseAnalytics.Param.VALUE, event.value.toLong())
+                    putString(FirebaseAnalytics.Param.CURRENCY, CURRENCY)
+                    putParcelableArray(
+                        FirebaseAnalytics.Param.ITEMS,
+                        arrayOf(
+                            Bundle().apply {
+                                putString(FirebaseAnalytics.Param.ITEM_ID, event.id)
+                                putString(FirebaseAnalytics.Param.ITEM_NAME, event.name)
+                                putLong(FirebaseAnalytics.Param.QUANTITY, event.quantity.toLong())
+                            },
                         ),
-                    ),
-                ),
+                    )
+                },
             )
 
             is AnalyticsEvent.BeginCheckout -> analytics.logEvent(
                 FirebaseAnalytics.Event.BEGIN_CHECKOUT,
-                bundleOf(
-                    FirebaseAnalytics.Param.VALUE to event.value.toLong(),
-                    FirebaseAnalytics.Param.CURRENCY to CURRENCY,
-                    "item_count" to event.itemCount.toLong(),
-                ),
+                Bundle().apply {
+                    putLong(FirebaseAnalytics.Param.VALUE, event.value.toLong())
+                    putString(FirebaseAnalytics.Param.CURRENCY, CURRENCY)
+                    putLong("item_count", event.itemCount.toLong())
+                },
             )
 
             is AnalyticsEvent.Purchase -> analytics.logEvent(
                 FirebaseAnalytics.Event.PURCHASE,
-                bundleOf(
-                    FirebaseAnalytics.Param.TRANSACTION_ID to event.orderID,
-                    FirebaseAnalytics.Param.VALUE to event.value.toLong(),
-                    FirebaseAnalytics.Param.CURRENCY to CURRENCY,
-                ),
+                Bundle().apply {
+                    putString(FirebaseAnalytics.Param.TRANSACTION_ID, event.orderID)
+                    putLong(FirebaseAnalytics.Param.VALUE, event.value.toLong())
+                    putString(FirebaseAnalytics.Param.CURRENCY, CURRENCY)
+                },
             )
 
             is AnalyticsEvent.BrewCompleted -> analytics.logEvent(
                 "brew_completed",
-                bundleOf("recipe_id" to event.recipeID),
+                Bundle().apply { putString("recipe_id", event.recipeID) },
             )
         }
     }

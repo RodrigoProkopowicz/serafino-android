@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="serafino_noir">#0B0807</color>
+    <!-- Fondo del ícono adaptativo: muestreado del AppIcon original de iOS. -->
+    <color name="ic_launcher_background">#160D08</color>
 </resources>

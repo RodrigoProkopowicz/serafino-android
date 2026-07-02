@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Falso positivo: AAPT solo resuelve adaptive icons del manifest desde mipmap-anydpi-v26;
+         moverlos a mipmap-anydpi (como sugiere el check por minSdk 26) rompe el link de recursos
+         con "resource mipmap/ic_launcher not found". -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+</lint>

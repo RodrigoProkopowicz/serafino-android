@@ -1,25 +1,26 @@
 [versions]
-agp = "8.7.3"
-kotlin = "2.1.0"
-ksp = "2.1.0-1.0.29"
-coreKtx = "1.15.0"
-lifecycle = "2.8.7"
-activityCompose = "1.9.3"
-composeBom = "2024.12.01"
-room = "2.6.1"
-datastore = "1.1.1"
-coroutines = "1.9.0"
-serialization = "1.7.3"
-okhttp = "4.12.0"
-coil = "2.7.0"
+agp = "9.2.1"
+kotlin = "2.4.0"
+ksp = "2.3.9"
+coreKtx = "1.19.0"
+lifecycle = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.06.01"
+room = "2.8.4"
+datastore = "1.2.1"
+coroutines = "1.11.0"
+serialization = "1.11.0"
+okhttp = "5.4.0"
+coil = "3.5.0"
 junit = "4.13.2"
-androidxJunit = "1.2.1"
-espresso = "3.6.1"
-firebaseBom = "33.7.0"
-googleServices = "4.4.2"
-coroutinesPlayServices = "1.9.0"
-credentials = "1.3.0"
-googleid = "1.1.1"
+orgJson = "20260522"
+androidxJunit = "1.3.0"
+espresso = "3.7.0"
+firebaseBom = "34.15.0"
+googleServices = "4.5.0"
+coroutinesPlayServices = "1.11.0"
+credentials = "1.6.0"
+googleid = "1.2.0"
 
 [libraries]
 # AndroidX core
@@ -58,8 +59,9 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 # Networking
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 
-# Images
-coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+# Images (Coil 3: el soporte de red es un artefacto aparte, sobre OkHttp)
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 # Firebase (real backend: Auth + Analytics). Versions managed by the BoM.
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
@@ -74,14 +76,14 @@ google-identity-googleid = { group = "com.google.android.libraries.identity.goog
 
 # Test
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+# Kotlin es INTEGRADO desde AGP 9 (sin plugin kotlin-android); compose/serialization siguen aparte.
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
