@@ -30,6 +30,9 @@ object SellerInfo {
     // Enlaces legales (venta online en Argentina)
     const val termsURL = "https://serafinocoffee.com/terminos"
     const val privacyURL = "https://serafinocoffee.com/privacidad"
-    /** Botón de arrepentimiento (Resolución 424/2020). */
+    /**
+     * Botón de arrepentimiento (Disposición DNCyDC 954/2025, vigente desde el 4/9/2025; deroga la
+     * Resolución 424/2020): cancelar una compra dentro de los 10 días.
+     */
     const val regretURL = "https://serafinocoffee.com/arrepentimiento"
 }
