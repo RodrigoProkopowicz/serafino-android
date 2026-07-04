@@ -24,6 +24,7 @@ import com.serafino.domain.entities.store.Product
 import com.serafino.domain.entities.store.ProductFormat
 import com.serafino.domain.entities.store.ProductReviews
 import com.serafino.domain.entities.store.pricing
+import com.serafino.domain.services.AccountService
 import com.serafino.domain.services.CartStoring
 import com.serafino.domain.services.CheckoutForm
 import com.serafino.domain.services.CheckoutNotice
@@ -332,6 +333,8 @@ class MockAuthService(
     var token: String? = "tok-abc",
 ) : AuthProviding {
     var signInError: Throwable? = null
+    /** Si está seteado, `signOut` lanza SIN limpiar la sesión ni publicar el evento (espeja el fallo real). */
+    var signOutError: Throwable? = null
     var signOutCount = 0; private set
 
     override suspend fun signIn() {
@@ -341,8 +344,21 @@ class MockAuthService(
     }
     override fun signOut() {
         signOutCount++
+        signOutError?.let { throw it }
         currentUser = null
         bus.publish(AuthChangedEvent(isSignedIn = false))
     }
     override suspend fun idToken(): String? = token
+}
+
+class MockAccountService(var error: Throwable? = null) : AccountService {
+    var deleteCount = 0; private set
+    /** Demora artificial del borrado (para observar el estado `deleting` con reloj virtual). */
+    var delayMillis: Long = 0
+
+    override suspend fun deleteAccount() {
+        deleteCount++
+        if (delayMillis > 0) delay(delayMillis)
+        error?.let { throw it }
+    }
 }

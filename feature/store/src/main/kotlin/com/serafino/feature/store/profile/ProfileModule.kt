@@ -11,6 +11,7 @@ import com.serafino.architecture.Presenter
 import com.serafino.architecture.Router
 import com.serafino.architecture.resolve
 import com.serafino.architecture.require
+import com.serafino.domain.services.AccountService
 import com.serafino.domain.services.LoyaltyProviding
 
 /** Presenter del Perfil. Espeja `ProfilePresenter` de iOS. */
@@ -30,6 +31,10 @@ class ProfilePresenter(
     fun signIn() = interactor.handle(ProfileInteractor.Input.SignIn)
     fun signOut() = interactor.handle(ProfileInteractor.Input.SignOut)
     fun retry() = interactor.handle(ProfileInteractor.Input.Retry)
+
+    fun requestDeleteAccount() = interactor.handle(ProfileInteractor.Input.DeleteAccountRequested)
+    fun confirmDeleteAccount() = interactor.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+    fun cancelDeleteAccount() = interactor.handle(ProfileInteractor.Input.DeleteAccountCancelled)
 }
 
 /** Ensambla el stack VIPER del Perfil. Espeja `ProfileModule` de iOS. */
@@ -40,6 +45,7 @@ object ProfileModule {
             loyalty = container.require<LoyaltyProviding>(),
             bus = container.require<EventBus>(),
             analytics = container.resolve<AnalyticsTracking>() ?: NoOpAnalytics(),
+            account = container.resolve<AccountService>(),
         )
         return ProfilePresenter(interactor, router)
     }

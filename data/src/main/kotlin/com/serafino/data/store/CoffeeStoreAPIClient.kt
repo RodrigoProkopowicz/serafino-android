@@ -4,6 +4,7 @@ import com.serafino.architecture.AuthProviding
 import com.serafino.domain.BackendConfig
 import com.serafino.domain.entities.store.Order
 import com.serafino.domain.entities.store.ProductReviews
+import com.serafino.domain.services.AccountService
 import com.serafino.domain.services.CheckoutNotice
 import com.serafino.domain.services.CheckoutPreference
 import com.serafino.domain.services.CheckoutRequest
@@ -25,7 +26,7 @@ import org.json.JSONObject
 class CoffeeStoreAPIClient(
     private val auth: AuthProviding? = null,
     private val client: OkHttpClient = Http.shared,
-) : CheckoutService, ReviewsProviding {
+) : CheckoutService, ReviewsProviding, AccountService {
 
     override suspend fun createPreference(request: CheckoutRequest): CheckoutPreference {
         val itemsArray = JSONArray().apply {
@@ -80,6 +81,17 @@ class CoffeeStoreAPIClient(
         val (status, data) = send("GET", "reviews/$segment")
         if (status !in 200..299) throw ApiException.Server(CoffeeStoreResponseMapper.errorMessage(data))
         return CoffeeStoreResponseMapper.reviews(data)
+    }
+
+    /**
+     * Borra la cuenta del usuario autenticado (POST a `account/delete` con el Bearer del ID token).
+     * El backend borra la cuenta de fidelidad, desvincula los pedidos y borra el usuario de Auth;
+     * es idempotente. Lanza [ApiException.Server] si el backend responde con error, para que el
+     * llamador informe y NO cierre la sesión local (así el borrado se puede reintentar).
+     */
+    override suspend fun deleteAccount() {
+        val (status, data) = send("POST", "account/delete", authenticated = true)
+        if (status !in 200..299) throw ApiException.Server(CoffeeStoreResponseMapper.errorMessage(data))
     }
 
     /**

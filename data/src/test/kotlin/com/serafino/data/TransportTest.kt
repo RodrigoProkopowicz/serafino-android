@@ -167,6 +167,33 @@ class CoffeeStoreApiClientTransportTest {
         assertTrue(runCatching { client().createPreference(sampleRequest) }.exceptionOrNull() is ApiException)
     }
 
+    /** Borrado de cuenta logueado: POST autenticado a account/delete con el Bearer del ID token. */
+    @Test fun deleteAccountOk() = runBlocking {
+        t.respond(200, """{"ok":true}""")
+        val auth = FakeAuth(token = "tok-abc", currentUser = AuthUser("u1", "Ana", null))
+        CoffeeStoreAPIClient(auth, clientWith(t)).deleteAccount()
+        assertEquals("POST", t.lastRequest?.method)
+        assertTrue(t.lastRequest!!.url.toString().contains("/api/account/delete"))
+        assertEquals("Bearer tok-abc", t.lastRequest?.header("Authorization"))
+    }
+
+    @Test fun deleteAccountServerError() = runBlocking {
+        t.respond(500, """{"error":"No se pudo eliminar la cuenta."}""")
+        val auth = FakeAuth(token = "tok-abc", currentUser = AuthUser("u1", "Ana", null))
+        val ex = runCatching { CoffeeStoreAPIClient(auth, clientWith(t)).deleteAccount() }.exceptionOrNull()
+        assertTrue(ex is ApiException.Server)
+        assertEquals("No se pudo eliminar la cuenta.", (ex as ApiException.Server).serverMessage)
+    }
+
+    /** Con sesión pero SIN token obtenible (refresh caído), no manda una request a medias: lanza. */
+    @Test fun deleteAccountWithSessionButNoTokenThrows() = runBlocking {
+        t.respond(200, """{"ok":true}""")
+        val auth = FakeAuth(token = null, currentUser = AuthUser("u1", "Ana", null))
+        val ex = runCatching { CoffeeStoreAPIClient(auth, clientWith(t)).deleteAccount() }.exceptionOrNull()
+        assertTrue(ex is ApiException.Server)
+        assertNull(t.lastRequest)
+    }
+
     @Test fun validatePromoOk() = runBlocking {
         t.respond(200, """{"valid":true,"code":"CAFE10","percent":10}""")
         val promo = client().validatePromo("CAFE10")

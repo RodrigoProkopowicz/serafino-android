@@ -16,6 +16,7 @@ import com.serafino.architecture.NoOpAnalytics
 import com.serafino.architecture.PurchaseCompletedEvent
 import com.serafino.architecture.RewardRedeemedEvent
 import com.serafino.architecture.events
+import com.serafino.domain.services.AccountService
 import com.serafino.domain.entities.loyalty.LoyaltyAccount
 import com.serafino.domain.entities.loyalty.LoyaltyReward
 import com.serafino.domain.entities.loyalty.LoyaltyTier
@@ -55,6 +56,8 @@ class ProfileInteractor(
     private val loyalty: LoyaltyProviding,
     private val bus: EventBus,
     private val analytics: AnalyticsTracking = NoOpAnalytics(),
+    /** Borrado de cuenta (requisito de tienda). Null si el backend no está cableado. */
+    private val account: AccountService? = null,
     /** Cada cuánto se auto-refresca la cuenta mientras el Perfil está visible. */
     private val autoRefreshInterval: Duration = 5.seconds,
     /** Ventana de frescura: reingresos al tab / foreground dentro de este TTL no tocan la red. */
@@ -95,6 +98,12 @@ class ProfileInteractor(
         val activity: List<ActivityRow> = emptyList(),
         val howToEarnText: String = "",
         val signInError: String? = null,
+        /** Modal de confirmación de borrado de cuenta abierto. */
+        val confirmingDelete: Boolean = false,
+        /** Borrado en curso (request al backend en vuelo). */
+        val deleting: Boolean = false,
+        /** Último error de borrado (se muestra en el modal; permite reintentar). */
+        val deleteError: String? = null,
     )
 
     sealed interface Input {
@@ -102,6 +111,12 @@ class ProfileInteractor(
         data object SignIn : Input
         data object SignOut : Input
         data object Retry : Input
+        /** El usuario tocó "Eliminar cuenta": abre la confirmación. */
+        data object DeleteAccountRequested : Input
+        /** El usuario confirmó el borrado en el modal: ejecuta la eliminación. */
+        data object DeleteAccountConfirmed : Input
+        /** El usuario descartó la confirmación. */
+        data object DeleteAccountCancelled : Input
     }
 
     sealed interface State {
@@ -154,6 +169,11 @@ class ProfileInteractor(
             is Input.SignIn -> signIn()
             is Input.SignOut -> runCatching { auth.signOut() }
             is Input.Retry -> load()
+            is Input.DeleteAccountRequested ->
+                data = data.copy(confirmingDelete = true, deleteError = null)
+            is Input.DeleteAccountCancelled ->
+                if (!data.deleting) data = data.copy(confirmingDelete = false, deleteError = null)
+            is Input.DeleteAccountConfirmed -> deleteAccount()
         }
     }
 
@@ -219,6 +239,39 @@ class ProfileInteractor(
                     data = if (error is AuthError.Cancelled) data.copy(signInError = null)
                     else data.copy(signInError = (error as? AuthError)?.displayMessage ?: error.message)
                 }
+        }
+    }
+
+    /**
+     * Ejecuta el borrado de cuenta confirmado: llama al backend y, SOLO si responde OK, cierra la
+     * sesión local y vuelve al gate. Si falla, conserva la sesión y deja el modal abierto con el
+     * error, para que el usuario reintente (el backend es idempotente: reintentar tras un borrado
+     * parcial también termina OK).
+     */
+    private fun deleteAccount() {
+        if (auth.currentUser == null || data.deleting) return
+        val service = account ?: run {
+            data = data.copy(deleteError = deleteFailureMessage)
+            return
+        }
+        data = data.copy(deleting = true, deleteError = null)
+        scope.launch {
+            try {
+                service.deleteAccount()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                data = data.copy(deleting = false, deleteError = error.message ?: deleteFailureMessage)
+                return@launch
+            }
+            // Borrado confirmado por el backend: la cuenta ya NO existe. Cerramos la sesión local
+            // (best-effort) y volvemos al gate de forma DETERMINÍSTICA, aunque `signOut` lance (p. ej.
+            // AuthError.Failed): si dependiéramos solo del AuthChanged que publica un signOut exitoso,
+            // un fallo de éste dejaría el modal trabado en el spinner tras un borrado irreversible.
+            // Un signOut exitoso ya habrá corrido evaluateSession→clear; volver a llamarlo es idempotente.
+            runCatching { auth.signOut() }
+            clear()
+            state = State.SignedOut
         }
     }
 
@@ -418,6 +471,7 @@ class ProfileInteractor(
     }
 
     private companion object {
+        const val deleteFailureMessage = "No se pudo eliminar la cuenta. Probá de nuevo en unos minutos."
         val esAR = Locale("es", "AR")
         val monthYear = SimpleDateFormat("MMMM yyyy", esAR)
         val dayMonth = SimpleDateFormat("d MMM", esAR)

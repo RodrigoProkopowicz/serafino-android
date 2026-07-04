@@ -13,6 +13,7 @@ import com.serafino.data.persistence.AppPersistence
 import com.serafino.data.persistence.RoomCartStore
 import com.serafino.data.store.CoffeeStoreAPIClient
 import com.serafino.data.store.FirestoreProductCatalog
+import com.serafino.domain.services.AccountService
 import com.serafino.domain.services.CartStoring
 import com.serafino.domain.services.CheckoutService
 import com.serafino.domain.services.ProductCatalogProviding
@@ -35,7 +36,7 @@ class StoreModule(private val context: Context) : DependencyModule {
             RoomCartStore(dao, resolver.require<EventBus>())
         }
 
-        // Un único cliente cumple ambos roles (CheckoutService + ReviewsProviding).
+        // Un único cliente cumple los tres roles (CheckoutService + ReviewsProviding + AccountService).
         container.register<CoffeeStoreAPIClient>(DependencyScope.Singleton) { resolver ->
             CoffeeStoreAPIClient(auth = resolver.resolve<AuthProviding>())
         }
@@ -43,6 +44,9 @@ class StoreModule(private val context: Context) : DependencyModule {
             resolver.require<CoffeeStoreAPIClient>()
         }
         container.register<ReviewsProviding>(DependencyScope.Singleton) { resolver ->
+            resolver.require<CoffeeStoreAPIClient>()
+        }
+        container.register<AccountService>(DependencyScope.Singleton) { resolver ->
             resolver.require<CoffeeStoreAPIClient>()
         }
     }

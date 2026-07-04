@@ -340,4 +340,144 @@ class ProfileInteractorTest {
         assertEquals(0, loyalty.loadAccountCount)
         assertEquals(ProfileInteractor.State.SignedOut, i.state)
     }
+
+    // MARK: borrado de cuenta
+
+    private data class DeleteSetup(
+        val interactor: ProfileInteractor,
+        val auth: MockAuthService,
+        val account: MockAccountService,
+    )
+
+    private fun makeDelete(accountError: Throwable? = null): DeleteSetup {
+        val bus = EventBus()
+        val auth = MockAuthService(bus, AuthUser("u1", "Ana", "ana@mail.com", testDate(2025, 1, 1)))
+        val loyalty = MockLoyaltyProvider()
+        val account = MockAccountService(accountError)
+        val interactor = ProfileInteractor(auth, loyalty, bus, account = account)
+        return DeleteSetup(interactor, auth, account)
+    }
+
+    /** Tocar "Eliminar cuenta" abre la confirmación (sin tocar el backend). */
+    @Test fun deleteRequestOpensConfirmation() {
+        val (i, _, account) = makeDelete()
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        assertTrue(i.data.confirmingDelete)
+        assertEquals(0, account.deleteCount)
+    }
+
+    /** Cancelar cierra la confirmación sin borrar nada. */
+    @Test fun deleteCancelClosesConfirmation() {
+        val (i, auth, account) = makeDelete()
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountCancelled)
+        assertFalse(i.data.confirmingDelete)
+        assertEquals(0, account.deleteCount)
+        assertEquals(0, auth.signOutCount)
+        assertEquals(ProfileInteractor.State.Loaded, i.state)
+    }
+
+    /** Confirmar borra en el backend y, con éxito, cierra la sesión local y vuelve al gate. */
+    @Test fun deleteConfirmedCallsBackendThenSignsOut() {
+        val (i, auth, account) = makeDelete()
+        i.handle(ProfileInteractor.Input.OnAppear)
+        assertEquals("450", i.data.balanceText)
+
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+
+        assertEquals(1, account.deleteCount)
+        assertEquals(1, auth.signOutCount)          // limpieza local tras el borrado
+        assertEquals(ProfileInteractor.State.SignedOut, i.state)
+        assertEquals("0", i.data.balanceText)       // data reseteada por clear()
+        assertFalse(i.data.confirmingDelete)
+        assertFalse(i.data.deleting)
+    }
+
+    /**
+     * Si el borrado en el backend fue OK pero el `signOut` LOCAL lanza (la cuenta ya no existe),
+     * igual volvemos al gate sin dejar el modal trabado en el spinner (regresión de revisión).
+     */
+    @Test fun deleteReturnsToGateEvenIfLocalSignOutThrows() {
+        val bus = EventBus()
+        val auth = MockAuthService(bus, AuthUser("u1", "Ana", "ana@mail.com", testDate(2025, 1, 1)))
+            .apply { signOutError = RuntimeException("firebase signOut boom") }
+        val account = MockAccountService()
+        val i = ProfileInteractor(auth, MockLoyaltyProvider(), bus, account = account)
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+
+        assertEquals(1, account.deleteCount)        // el backend borró (irreversible)
+        assertEquals(1, auth.signOutCount)          // se intentó cerrar sesión (y lanzó)
+        assertEquals(ProfileInteractor.State.SignedOut, i.state)   // igual salimos al gate
+        assertFalse(i.data.deleting)                // spinner apagado
+        assertFalse(i.data.confirmingDelete)        // modal cerrado
+    }
+
+    /** Si el backend falla, NO cierra la sesión: conserva el contenido y muestra el error para reintentar. */
+    @Test fun deleteFailureKeepsSessionAndShowsError() {
+        val (i, auth, account) = makeDelete(accountError = RuntimeException("No se pudo eliminar la cuenta."))
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+
+        assertEquals(1, account.deleteCount)
+        assertEquals(0, auth.signOutCount)          // la sesión sobrevive al fallo
+        assertEquals(ProfileInteractor.State.Loaded, i.state)
+        assertEquals("No se pudo eliminar la cuenta.", i.data.deleteError)
+        assertFalse(i.data.deleting)
+        assertTrue(i.data.confirmingDelete)         // el modal sigue abierto para reintentar
+    }
+
+    /** Sin servicio de borrado cableado, muestra un error y no cierra la sesión. */
+    @Test fun deleteWithoutServiceShowsError() {
+        val bus = EventBus()
+        val auth = MockAuthService(bus, AuthUser("u1", "Ana", "ana@mail.com", testDate(2025, 1, 1)))
+        val i = ProfileInteractor(auth, MockLoyaltyProvider(), bus, account = null)
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+
+        assertEquals(0, auth.signOutCount)
+        assertEquals(ProfileInteractor.State.Loaded, i.state)
+        assertTrue(i.data.deleteError != null)
+    }
+
+    /** Durante el borrado, `deleting` marca el spinner y aún no cerró sesión; al terminar, sale al gate. */
+    @Test fun deleteShowsSpinnerWhileInFlight() = runTest {
+        val bus = EventBus()
+        val auth = MockAuthService(bus, AuthUser("u1", "Ana", "ana@mail.com", testDate(2025, 1, 1)))
+        val account = MockAccountService().apply { delayMillis = 50 }
+        val i = ProfileInteractor(auth, MockLoyaltyProvider(), bus, account = account)
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+
+        runCurrent()
+        assertTrue(i.data.deleting)                 // request en vuelo
+        assertEquals(0, auth.signOutCount)
+
+        advanceUntilIdle()
+        assertEquals(1, account.deleteCount)
+        assertEquals(1, auth.signOutCount)
+        assertEquals(ProfileInteractor.State.SignedOut, i.state)
+    }
+
+    /** Un segundo "Confirmar" mientras el borrado está en vuelo no dispara una segunda request. */
+    @Test fun deleteIgnoresReentrantConfirmWhileInFlight() = runTest {
+        val bus = EventBus()
+        val auth = MockAuthService(bus, AuthUser("u1", "Ana", "ana@mail.com", testDate(2025, 1, 1)))
+        val account = MockAccountService().apply { delayMillis = 50 }
+        val i = ProfileInteractor(auth, MockLoyaltyProvider(), bus, account = account)
+        i.handle(ProfileInteractor.Input.OnAppear)
+        i.handle(ProfileInteractor.Input.DeleteAccountRequested)
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)
+        runCurrent()
+        i.handle(ProfileInteractor.Input.DeleteAccountConfirmed)   // doble tap
+        advanceUntilIdle()
+        assertEquals(1, account.deleteCount)
+    }
 }

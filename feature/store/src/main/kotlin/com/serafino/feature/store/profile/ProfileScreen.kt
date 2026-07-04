@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,9 +27,11 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -110,6 +113,9 @@ fun ProfileScreen(presenter: ProfilePresenter) {
                 }
             }
         }
+
+        // Confirmación de borrado de cuenta (overlay sobre el Perfil).
+        if (data.confirmingDelete) DeleteAccountDialog(data, presenter)
     }
 }
 
@@ -188,6 +194,17 @@ private fun Loaded(data: ProfileInteractor.Data, presenter: ProfilePresenter) {
     ) {
         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Theme.Palette.berry, modifier = Modifier.size(18.dp))
         Text("Cerrar sesión", style = SerafinoType.subheadline, fontWeight = FontWeight.SemiBold, color = Theme.Palette.berry)
+    }
+
+    // Eliminar cuenta: requisito de Google Play para apps con creación de cuenta. Sutil (la acción
+    // es rara e irreversible); la advertencia y el énfasis destructivo viven en la confirmación.
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = presenter::requestDeleteAccount).padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.DeleteForever, contentDescription = null, tint = Theme.Palette.latte, modifier = Modifier.size(15.dp))
+        Text("Eliminar cuenta", style = SerafinoType.caption, fontWeight = FontWeight.Medium, color = Theme.Palette.latte)
     }
 }
 
@@ -322,6 +339,67 @@ private fun ActivityCard(data: ProfileInteractor.Data) {
                         Text("${row.typeText} · ${row.dateText}", style = SerafinoType.caption, color = Theme.Palette.latte)
                     }
                     Text(row.amountText, style = SerafinoType.subheadline, fontWeight = FontWeight.Bold, color = if (row.isCredit) Theme.Palette.green else Theme.Palette.berry)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Confirmación de borrado de cuenta: advierte la pérdida IRREVERSIBLE de granos y vales antes de
+ * llamar al backend. El scrim consume los toques (no deja pasar taps al Perfil). Durante el borrado
+ * muestra un spinner y bloquea "Cancelar"; un error se muestra en el propio modal para reintentar.
+ */
+@Composable
+private fun DeleteAccountDialog(data: ProfileInteractor.Data, presenter: ProfilePresenter) {
+    val inFlight = data.deleting
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+        contentAlignment = Alignment.Center,
+    ) {
+        GlassCard(Modifier.fillMaxWidth().padding(Theme.Spacing.lg)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Theme.Spacing.sm)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Filled.WarningAmber, contentDescription = null, tint = Theme.Palette.berry, modifier = Modifier.size(24.dp))
+                    Text("Eliminar tu cuenta", style = SerafinoType.headline, fontWeight = FontWeight.Bold, color = Theme.Palette.foam)
+                }
+                Text(
+                    "Se eliminarán para siempre tus granos, tu nivel y tus vales. Esta acción no se puede deshacer.",
+                    style = SerafinoType.subheadline,
+                    color = Theme.Palette.latte,
+                )
+                Text(
+                    "Tus pedidos ya realizados se conservan por obligaciones legales, pero dejan de estar asociados a tu identidad.",
+                    style = SerafinoType.caption,
+                    color = Theme.Palette.latte,
+                )
+                data.deleteError?.let {
+                    Text(it, style = SerafinoType.caption, color = Theme.Palette.berry, modifier = Modifier.padding(top = 2.dp))
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text(
+                        "Cancelar",
+                        style = SerafinoType.subheadline,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (inFlight) Theme.Palette.latte.copy(alpha = 0.5f) else Theme.Palette.latte,
+                        modifier = Modifier.clickable(enabled = !inFlight, onClick = presenter::cancelDeleteAccount).padding(12.dp),
+                    )
+                    Box(Modifier.weight(1f)) {
+                        if (inFlight) {
+                            Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Theme.Palette.caramel, modifier = Modifier.size(24.dp))
+                            }
+                        } else {
+                            CTAButton("Eliminar cuenta", icon = Icons.Filled.DeleteForever, tint = Theme.Palette.berry, onClick = presenter::confirmDeleteAccount)
+                        }
+                    }
                 }
             }
         }
