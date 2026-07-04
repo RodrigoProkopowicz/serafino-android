@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reglas de extracción de datos para API 31+ (android:dataExtractionRules). Dos canales:
+    <cloud-backup>    -> Google Auto Backup (sube a la cuenta de Google del usuario).
+    <device-transfer> -> copia directa a un equipo nuevo (device-to-device transfer).
+
+  En AMBOS canales se excluye el dominio COMPLETO de SharedPreferences y el de bases de datos
+  (path="." = todo el directorio, recursivo). Motivo y contenido cubierto: ver backup_rules.xml.
+  En resumen: PII de checkout (checkout.profile), la sesión de Firebase Auth con el refresh token
+  (archivo de nombre dinámico com.google.firebase.auth.api.Store.*.xml — imposible de fijar por ruta
+  exacta, de ahí la exclusión por dominio), los prefs/db de GA4, y serafino.db. cacheDir queda
+  excluido por Android automáticamente.
+
+  Si en el futuro se quisiera que SOLO los favoritos migren, habría que separarlos a su propia base y
+  usar <include>; ojo que declarar cualquier <include> invierte el default a "incluir solo lo listado".
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>

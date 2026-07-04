@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reglas de Google Auto Backup para API < 31 (android:fullBackupContent).
+
+  Se EXCLUYE del backup a la nube el dominio COMPLETO de SharedPreferences y el de bases de datos
+  (path="." = todo el directorio, recursivo). No se hace por-archivo a propósito: varias piezas
+  sensibles las crea el SDK con nombres DINÁMICOS que no se pueden fijar por ruta exacta (Android
+  no admite comodines ni prefijos en `path`). Lo que esto deja fuera del dispositivo:
+
+    sharedpref  -> serafino.prefs.xml                     : checkout.profile = nombre/email/teléfono/
+                                                            domicilio (PII, SharedPrefsCheckoutProfileStore)
+                                                            + ajustes de la app.
+                -> com.google.firebase.auth.api.Store.*.xml: sesión de Firebase Auth = refresh token
+                                                            (credencial viva) + uid/email/displayName.
+                                                            El sufijo depende del app id de Firebase, por
+                                                            eso se excluye el dominio entero, no el archivo.
+                -> com.google.android.gms.measurement.*.xml: identificadores pseudónimos de GA4.
+    database    -> serafino.db (+ -wal/-shm)               : favoritos (ids) y carrito (efímero).
+                -> google_app_measurement*.db              : eventos de GA4.
+
+  catalog-snapshot.json vive en cacheDir y el caché de Coil también => Android los excluye solo.
+
+  Contrapartida: favoritos y ajustes NO migran en un cambio de equipo. Es un costo trivial (los
+  favoritos son ids contra un catálogo estático) a cambio de que NINGÚN dato de usuario ni credencial
+  salga del dispositivo, en línea con la Política de Privacidad y el formulario Data Safety.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="database" path="." />
+</full-backup-content>
