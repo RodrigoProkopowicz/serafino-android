@@ -1,8 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    // Procesa `app/google-services.json` y activa Firebase (Auth + Analytics). Si el archivo
-    // no está, el build sigue (el plugin solo advierte); en runtime se detecta con FirebaseApp.
     alias(libs.plugins.google.services)
 }
 
@@ -14,9 +12,8 @@ android {
         applicationId = "com.rodrigoprokopowicz.serafino"
         minSdk = 26
         targetSdk = 37
-        // En sync con la versión de marketing de iOS (auditoría pre-producción 1.0.3).
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
